@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/x-icon" href="https://img.freepik.com/premium-vector/glowing-neon-music-note-icon-colorful-music-sign-glowing-neon-vector-illustration_561158-2743.jpg">
+
+    <title>Vibe Rooms - Filipino Music Discovery</title>
+    <meta name="description" content="Discover and share music in cozy Filipino vibes. Connect through sound, connect through culture." />
+    <meta name="author" content="Lovable" />
+    <meta property="og:title" content="Vibe Rooms" />
+    <meta property="og:description" content="Discover and share music in cozy Filipino vibes. Connect through sound, connect through culture." />
+    <meta property="og:type" content="website" />
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="app-wrapper">
+        <!-- Navigation Bar -->
+        <nav class="main-nav">
+            <div class="logo-container">
+                <div class="logo-box">
+                    <span class="logo-text">VR</span>
+                </div>
+                <span class="logo-title">Vibe Rooms</span>
+            </div>
+            
+            <div class="nav-actions">
+                <a href="#" class="nav-link">About</a>
+                <button class="btn btn-secondary" id="signin-btn">Sign In</button>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="container">
+            <!-- Hero Section -->
+            <section class="hero animate-float">
+                <div class="hero-content">
+                    <h1 class="hero-title glow-text">Vibe Rooms</h1>
+                    <p class="hero-subtitle">
+                        Discover and share music in cozy Filipino vibes. 
+                        <br />
+                        <span class="text-primary">Connect through sound, connect through culture.</span>
+                    </p>
+                </div>
+                
+                <div class="hero-actions">
+                    <button class="btn btn-primary btn-cta" id="join-room-btn">Join a Room</button>
+                    <button class="btn btn-outline" id="create-room-btn">Create Room</button>
+                </div>
+            </section>
+            
+            <!-- Rooms Grid Section -->
+            <section class="rooms-section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        Popular <span class="glow-text">Vibes</span>
+                    </h2>
+                    <p class="section-subtitle">
+                        Join thousands of Filipinos sharing their favorite tunes
+                    </p>
+                </div>
+                
+                <div class="rooms-grid">
+                    <!-- Room Cards are populated from the original component's data -->
+                    <div class="room-card">
+                        <div class="room-card-content">
+                            <div class="album-art-container">
+                                <img src="https://img.freepik.com/premium-vector/glowing-neon-music-note-icon-colorful-music-sign-glowing-neon-vector-illustration_561158-2743.jpg" alt="Marupok o'Clock room" class="album-art"/>
+                                <div class="play-overlay">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="play-icon"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                </div>
+                            </div>
+                            <div class="room-info">
+                                <h3 class="room-name">Marupok o'Clock</h3>
+                                <div class="room-listeners">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                    <span>2,847 listeners</span>
+                                </div>
+                            </div>
+                            <div class="status-indicator">
+                                <div class="status-dot animate-pulse-glow"></div>
+                                <span class="status-text">LIVE</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="room-card">
+                        <div class="room-card-content">
+                            <div class="album-art-container">
+                                <img src="https://img.freepik.com/premium-vector/glowing-neon-music-note-icon-colorful-music-sign-glowing-neon-vector-illustration_561158-2743.jpg" alt="Sunday Morning Tita Hits room" class="album-art"/>
+                                <div class="play-overlay">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="play-icon"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                </div>
+                            </div>
+                            <div class="room-info">
+                                <h3 class="room-name">Sunday Morning Tita Hits</h3>
+                                <div class="room-listeners">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                    <span>1,623 listeners</span>
+                                </div>
+                            </div>
+                            <div class="status-indicator">
+                                <div class="status-dot animate-pulse-glow"></div>
+                                <span class="status-text">LIVE</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="room-card">
+                        <div class="room-card-content">
+                            <div class="album-art-container">
+                                <img src="https://img.freepik.com/premium-vector/glowing-neon-music-note-icon-colorful-music-sign-glowing-neon-vector-illustration_561158-2743.jpg" alt="Sawi Session room" class="album-art"/>
+                                <div class="play-overlay">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="play-icon"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                </div>
+                            </div>
+                            <div class="room-info">
+                                <h3 class="room-name">Sawi Session</h3>
+                                <div class="room-listeners">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                    <span>3,456 listeners</span>
+                                </div>
+                            </div>
+                            <div class="status-indicator">
+                                <div class="status-dot animate-pulse-glow"></div>
+                                <span class="status-text">LIVE</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="room-card">
+                        <div class="room-card-content">
+                            <div class="album-art-container">
+                                <img src="https://img.freepik.com/premium-vector/glowing-neon-music-note-icon-colorful-music-sign-glowing-neon-vector-illustration_561158-2743.jpg" alt="Midnight Drive Feels room" class="album-art"/>
+                                <div class="play-overlay">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="play-icon"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                </div>
+                            </div>
+                            <div class="room-info">
+                                <h3 class="room-name">Midnight Drive Feels</h3>
+                                <div class="room-listeners">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                    <span>892 listeners</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Footer -->
+            <footer class="main-footer">
+                <p>Made with ❤️ for the Filipino music community</p>
+                <div class="footer-links">
+                    <a href="#" class="footer-link">Privacy</a>
+                    <a href="#" class="footer-link">Terms</a>
+                    <a href="#" class="footer-link">Support</a>
+                </div>
+            </footer>
+        </main>
+    </div>
+    <script src="js/script.js"></script>
+</body>
+</html>

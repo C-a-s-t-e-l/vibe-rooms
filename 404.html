@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 - Page Not Found</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="not-found-container">
+        <div class="not-found-content">
+            <h1 class="not-found-title">404</h1>
+            <p class="not-found-subtitle">Oops! Page not found</p>
+            <a href="/" class="not-found-link">Return to Home</a>
+        </div>
+    </div>
+    <script>
+      // Replicates the useEffect from NotFound.tsx
+      console.error(
+        "404 Error: User attempted to access non-existent route:",
+        window.location.pathname
+      );
+    </script>
+</body>
+</html>
