@@ -15,7 +15,6 @@
 </head>
 <body>
     <div id="app-wrapper">
-        <!-- Navigation Bar -->
         <nav class="main-nav">
             <div class="logo-container">
                 <div class="logo-box">
@@ -26,30 +25,23 @@
             
             <div class="nav-actions">
                 <a href="#" class="nav-link">About</a>
-                <button class="btn btn-secondary" id="signin-btn">Sign In</button>
+                
+<a href="/login" class="btn btn-secondary" id="signin-btn">Sign In</a>
             </div>
         </nav>
 
-        <!-- Main Content -->
         <main class="container">
-            <!-- Hero Section -->
-            <section class="hero animate-float">
-                <div class="hero-content">
-                    <h1 class="hero-title glow-text">Vibe Rooms</h1>
-                    <p class="hero-subtitle">
-                        Discover and share music in cozy Filipino vibes. 
-                        <br />
-                        <span class="text-primary">Connect through sound, connect through culture.</span>
-                    </p>
-                </div>
-                
-                <div class="hero-actions">
-                    <button class="btn btn-primary btn-cta" id="join-room-btn">Join a Room</button>
-                    <button class="btn btn-outline" id="create-room-btn">Create Room</button>
-                </div>
-            </section>
+          <section class="hero animate-float">
+    <div class="hero-content">
+        <h1 class="hero-title glow-text">Vibe Rooms</h1>
+        <p class="hero-subtitle">
+            Discover and share music in cozy Filipino vibes. 
+            <br />
+            <span class="text-primary">Connect through sound, connect through culture.</span>
+        </p>
+    </div>
+</section>
             
-            <!-- Rooms Grid Section -->
             <section class="rooms-section">
                 <div class="section-header">
                     <h2 class="section-title">
@@ -58,95 +50,56 @@
                     <p class="section-subtitle">
                         Join thousands of Filipinos sharing their favorite tunes
                     </p>
+                    <button class="btn btn-primary" id="create-room-btn">Create a New Vibe</button>
                 </div>
                 
                 <div class="rooms-grid">
-                    <!-- Room Cards are populated from the original component's data -->
-                    <div class="room-card">
-                        <div class="room-card-content">
-                            <div class="album-art-container">
-                                <img src="https://img.freepik.com/premium-vector/glowing-neon-music-note-icon-colorful-music-sign-glowing-neon-vector-illustration_561158-2743.jpg" alt="Marupok o'Clock room" class="album-art"/>
-                                <div class="play-overlay">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="play-icon"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                                </div>
-                            </div>
-                            <div class="room-info">
-                                <h3 class="room-name">Marupok o'Clock</h3>
-                                <div class="room-listeners">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                                    <span>2,847 listeners</span>
-                                </div>
-                            </div>
-                            <div class="status-indicator">
-                                <div class="status-dot animate-pulse-glow"></div>
-                                <span class="status-text">LIVE</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="room-card">
-                        <div class="room-card-content">
-                            <div class="album-art-container">
-                                <img src="https://img.freepik.com/premium-vector/glowing-neon-music-note-icon-colorful-music-sign-glowing-neon-vector-illustration_561158-2743.jpg" alt="Sunday Morning Tita Hits room" class="album-art"/>
-                                <div class="play-overlay">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="play-icon"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                                </div>
-                            </div>
-                            <div class="room-info">
-                                <h3 class="room-name">Sunday Morning Tita Hits</h3>
-                                <div class="room-listeners">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                                    <span>1,623 listeners</span>
-                                </div>
-                            </div>
-                            <div class="status-indicator">
-                                <div class="status-dot animate-pulse-glow"></div>
-                                <span class="status-text">LIVE</span>
-                            </div>
-                        </div>
-                    </div>
                     
-                    <div class="room-card">
-                        <div class="room-card-content">
-                            <div class="album-art-container">
-                                <img src="https://img.freepik.com/premium-vector/glowing-neon-music-note-icon-colorful-music-sign-glowing-neon-vector-illustration_561158-2743.jpg" alt="Sawi Session room" class="album-art"/>
-                                <div class="play-overlay">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="play-icon"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                                </div>
-                            </div>
-                            <div class="room-info">
-                                <h3 class="room-name">Sawi Session</h3>
-                                <div class="room-listeners">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                                    <span>3,456 listeners</span>
-                                </div>
-                            </div>
-                            <div class="status-indicator">
-                                <div class="status-dot animate-pulse-glow"></div>
-                                <span class="status-text">LIVE</span>
-                            </div>
+                      
+                        
+                </div>
+            </section>
+               <div id="room-view">
+                <header class="room-header">
+                    <h2 id="room-name-display">Room Name Will Go Here</h2>
+                    <button id="leave-room-btn" class="btn btn-outline">Leave Vibe</button>
+                </header>
+
+                <div class="room-layout">
+         
+                    <div class="chat-container">
+                        <div id="chat-messages" class="chat-messages">
+                    
                         </div>
+                        <form id="chat-form" class="chat-form">
+                            <input type="text" id="chat-input" placeholder="Say something..." autocomplete="off" required>
+                            <button type="submit" class="btn btn-primary">Send</button>
+                        </form>
                     </div>
 
-                    <div class="room-card">
-                        <div class="room-card-content">
-                            <div class="album-art-container">
-                                <img src="https://img.freepik.com/premium-vector/glowing-neon-music-note-icon-colorful-music-sign-glowing-neon-vector-illustration_561158-2743.jpg" alt="Midnight Drive Feels room" class="album-art"/>
-                                <div class="play-overlay">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="play-icon"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                                </div>
+                    <div class="music-container">
+                        <div id="now-playing-container">
+                            <h3>Now Playing</h3>
+                            <p id="now-playing-text">Nothing is playing...</p>
+                        </div>
+
+                        <div id="queue-container">
+                            <h3>Up Next</h3>
+                            <div id="queue-list">
                             </div>
-                            <div class="room-info">
-                                <h3 class="room-name">Midnight Drive Feels</h3>
-                                <div class="room-listeners">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                                    <span>892 listeners</span>
-                                </div>
-                            </div>
+                        </div>
+                        
+                        <div id="search-container">
+                            <h3>Add to the Vibe</h3>
+                            <form id="search-form">
+                                <input type="text" id="search-input" placeholder="Search for a song...">
+                                <button type="submit" class="btn">Search</button>
+                            </form>
+                            <div id="search-results"></div>
                         </div>
                     </div>
                 </div>
-            </section>
+            </div>
             
             <!-- Footer -->
             <footer class="main-footer">
@@ -159,6 +112,17 @@
             </footer>
         </main>
     </div>
+
+    <!-- Socket.IO for real-time communication with the server -->
+    <script src="/socket.io/socket.io.js"></script>
+
+    <!-- Spotify's Web Playback SDK to turn the browser into a player -->
+    <script src="https://sdk.scdn.co/spotify-player.js"></script>
+
+    <!-- A helper library to make calling the Spotify Web API easier -->
+    <script src="https://unpkg.com/spotify-web-api-js/src/spotify-web-api.js"></script>
+
+    <!-- Your custom application logic (must be last) -->
     <script src="js/script.js"></script>
 </body>
 </html>
