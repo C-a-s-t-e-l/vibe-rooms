@@ -1,0 +1,47 @@
+<!-- views/room.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vibe Room</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/room.css">
+</head>
+<body>
+    <main id="room-view-wrapper">
+        <!-- This is the room view content, previously in index.html -->
+        <header class="room-header">
+            <h2 id="room-name-display">Loading Vibe...</h2>
+            <a href="/" class="btn btn-outline">Leave Vibe</a>
+        </header>
+        <div class="room-layout">
+            <div class="chat-container">
+                <div id="chat-messages" class="chat-messages"></div>
+                <form id="chat-form" class="chat-form">
+                    <input type="text" id="chat-input" placeholder="Say something..." autocomplete="off" required>
+                    <button type="submit" class="btn btn-primary">Send</button>
+                </form>
+            </div>
+            <div class="music-container">
+                <div id="now-playing-container"><h3>Now Playing</h3><p id="now-playing-text">...</p></div>
+                <div id="queue-container"><h3>Up Next</h3><div id="queue-list"></div></div>
+                <div id="search-container">
+                    <h3>Add to the Vibe</h3>
+                    <form id="search-form">
+                        <input type="text" id="search-input" placeholder="Search for a song...">
+                        <button type="submit" class="btn">Search</button>
+                    </form>
+                    <div id="search-results"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <!-- Link to all the necessary scripts for this page -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://sdk.scdn.co/spotify-player.js"></script>
+    <script src="https://unpkg.com/spotify-web-api-js/src/spotify-web-api.js"></script>
+    <script src="/js/room.js"></script>
+</body>
+</html>

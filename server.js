@@ -19,7 +19,19 @@ const spotifyApi = new SpotifyWebApi({
 let rooms = {};
 let userSockets = {};
 
-app.use(express.static(path.join(__dirname, '/')));
+// --- NEW: Tell Express where to serve static files from ---
+app.use(express.static(path.join(__dirname, 'public')));
+
+// --- NEW: Express Routes for Serving HTML Pages ---
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'views/index.html'));
+});
+
+app.get('/room/:roomId', (req, res) => {
+    // We'll just serve the generic room page.
+    // The front-end JS will handle fetching the specific room data.
+    res.sendFile(path.join(__dirname, 'views/room.html'));
+});
 
 app.get('/login', (req, res) => {
     const scopes = [
@@ -63,22 +75,27 @@ io.on('connection', (socket) => {
     });
 
     socket.on('createRoom', ({ roomName, spotifyUser }) => {
-        const roomId = `room_${Date.now()}`;
-        rooms[roomId] = {
-            id: roomId,
-            name: roomName,
-            listeners: [],
-            queue: [],
-            nowPlaying: null,
-            host: spotifyUser.id
-        };
-        io.emit('updateRoomsList', Object.values(rooms).map(room => ({
-            id: room.id,
-            name: room.name,
-            listenerCount: room.listeners.length
-        })));
-        handleJoinRoom(socket, { roomId, spotifyUser });
-    });
+    const roomId = `room_${Date.now()}`;
+    rooms[roomId] = {
+        id: roomId,
+        name: roomName,
+        listeners: [],
+        queue: [],
+        nowPlaying: null,
+        host: spotifyUser.id
+    };
+    
+    // Announce the new room to everyone in the lobby
+    io.emit('updateRoomsList', Object.values(rooms).map(room => ({
+        id: room.id,
+        name: room.name,
+        listenerCount: room.listeners.length,
+        nowPlaying: room.nowPlaying
+    })));
+    
+    // Tell the creator the new room's ID so their browser can redirect
+    socket.emit('roomCreated', { roomId }); 
+});
 
     socket.on('joinRoom', ({ roomId, spotifyUser }) => {
         handleJoinRoom(socket, { roomId, spotifyUser });
@@ -88,26 +105,34 @@ io.on('connection', (socket) => {
         io.to(roomId).emit('newChatMessage', { user: userName, text: message });
     });
 
-    socket.on('addSong', ({ roomId, trackId }) => {
-        if (!rooms[roomId]) return;
+    socket.on('addSong', ({ roomId, trackId, token }) => { // <-- Note the new "token" parameter
+    if (!rooms[roomId]) return;
 
-        spotifyApi.getTrack(trackId).then(data => {
-            const track = {
-                id: data.body.id,
-                name: data.body.name,
-                artist: data.body.artists[0].name,
-                albumArt: data.body.album.images[0].url,
-                duration_ms: data.body.duration_ms,
-                uri: data.body.uri
-            };
-            rooms[roomId].queue.push(track);
-            io.to(roomId).emit('queueUpdated', rooms[roomId].queue);
-            
-            if (!rooms[roomId].nowPlaying) {
-                playNextSong(roomId);
-            }
-        }).catch(err => console.error('Error fetching track:', err));
+    // Temporarily set the access token on the server-side API instance
+    spotifyApi.setAccessToken(token);
+
+    spotifyApi.getTrack(trackId).then(data => {
+        const track = {
+            id: data.body.id,
+            name: data.body.name,
+            artist: data.body.artists[0].name,
+            albumArt: data.body.album.images[0].url,
+            duration_ms: data.body.duration_ms,
+            uri: data.body.uri
+        };
+        rooms[roomId].queue.push(track);
+        io.to(roomId).emit('queueUpdated', rooms[roomId].queue);
+        
+        if (!rooms[roomId].nowPlaying) {
+            playNextSong(roomId);
+        }
+        // IMPORTANT: Reset the token so we don't accidentally use an old one
+        spotifyApi.resetAccessToken(); 
+    }).catch(err => {
+        console.error('Error fetching track with user token:', err.message);
+        spotifyApi.resetAccessToken();
     });
+});
 
     socket.on('disconnect', () => {
         console.log(`User disconnected: ${socket.id}`);
@@ -119,17 +144,23 @@ io.on('connection', (socket) => {
     });
 });
 
+// server.js
+
+// Replace the old version with this
 function handleJoinRoom(socket, { roomId, spotifyUser }) {
     if (!rooms[roomId]) {
-        socket.emit('error', { message: 'Room not found' });
+        // This can happen if the user tries to join a room that was just deleted
+        socket.emit('error', { message: 'Room not found. It may have been closed.' });
         return;
     }
 
+    // If the user is already in another room, make them leave it first
     const oldRoomId = userSockets[socket.id]?.roomId;
-    if (oldRoomId) {
+    if (oldRoomId && oldRoomId !== roomId) {
         handleLeaveRoom(socket);
     }
 
+    // Join the new room
     socket.join(roomId);
     rooms[roomId].listeners.push(socket.id);
     userSockets[socket.id] = { 
@@ -139,22 +170,24 @@ function handleJoinRoom(socket, { roomId, spotifyUser }) {
         roomId 
     };
 
+    // Announce the new listener count to everyone in the lobby
     io.emit('updateRoomsList', Object.values(rooms).map(room => ({
         id: room.id,
         name: room.name,
-        listenerCount: room.listeners.length
+        listenerCount: room.listeners.length,
+        nowPlaying: room.nowPlaying
     })));
 
-    socket.emit('joinedRoom', {
-        room: {
-            id: rooms[roomId].id,
-            name: rooms[roomId].name,
-            host: rooms[roomId].host
-        },
+    // Send the complete current state of the room to the newly joined user
+    socket.emit('roomState', {
+        id: rooms[roomId].id,
+        name: rooms[roomId].name,
+        host: rooms[roomId].host,
         queue: rooms[roomId].queue,
         nowPlaying: rooms[roomId].nowPlaying
     });
     
+    // Announce the arrival in the room's chat
     io.to(roomId).emit('newChatMessage', { system: true, text: `${spotifyUser.display_name} has joined the vibe.` });
 }
 
@@ -179,7 +212,7 @@ function handleLeaveRoom(socket) {
                     listenerCount: room.listeners.length
                 })));
             }
-        }, 60000);
+        }, 100000);
     } else {
         io.emit('updateRoomsList', Object.values(rooms).map(room => ({
             id: room.id,

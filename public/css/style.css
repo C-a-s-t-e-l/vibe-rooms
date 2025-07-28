@@ -493,3 +493,51 @@ body {
     max-height: 200px;
     overflow-y: auto;
 }
+
+/* Add this new rule for the room page wrapper */
+#room-view-wrapper {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    padding: 1.5rem;
+}
+@media (min-width: 768px) {
+    #room-view-wrapper {
+        padding: 2rem;
+    }
+}
+
+/* Modify the existing room-layout rule */
+.room-layout {
+    display: grid;
+    grid-template-columns: 1fr; /* Default for mobile */
+    gap: 2rem;
+    flex-grow: 1; /* This makes it fill the available vertical space */
+    min-height: 0; /* Prevents overflow issues with flex-grow */
+}
+@media (min-width: 1024px) {
+    /* Apply the grid layout to the .room-layout class */
+    .room-layout {
+        grid-template-columns: 2fr 1fr; /* This is a better ratio, 2/3 for chat, 1/3 for music */
+    }
+}
+
+/* Modify the chat-messages to also fill vertical space */
+.chat-messages {
+    height: auto; /* Remove fixed height */
+    flex-grow: 1; /* Make it grow to fill the container */
+    overflow-y: auto;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Make the chat and music containers use flexbox to layout their children */
+.chat-container, .music-container {
+    background: var(--gradient-card);
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    display: flex; /* ADDED */
+    flex-direction: column; /* ADDED */
+}
