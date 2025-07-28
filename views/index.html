@@ -24,24 +24,24 @@
             </div>
             
             <div class="nav-actions">
-                <a href="#" class="nav-link">About</a>
-                
-<a href="/login" class="btn btn-secondary" id="signin-btn">Sign In</a>
+                <a href="/login" class="btn btn-secondary" id="signin-btn">Sign In with Spotify</a>
             </div>
         </nav>
 
         <main class="container">
-          <section class="hero animate-float">
-    <div class="hero-content">
-        <h1 class="hero-title glow-text">Vibe Rooms</h1>
-        <p class="hero-subtitle">
-            Discover and share music in cozy Filipino vibes. 
-            <br />
-            <span class="text-primary">Connect through sound, connect through culture.</span>
-        </p>
-    </div>
-</section>
+            <!-- Hero Section (for logged-out users) -->
+            <section class="hero">
+                <div class="hero-content">
+                    <h1 class="hero-title glow-text">Vibe Rooms</h1>
+                    <p class="hero-subtitle">
+                        Discover and share music in cozy Filipino vibes. 
+                        <br />
+                        <span class="text-primary">Connect through sound, connect through culture.</span>
+                    </p>
+                </div>
+            </section>
             
+            <!-- Rooms Section (for logged-in users) -->
             <section class="rooms-section">
                 <div class="section-header">
                     <h2 class="section-title">
@@ -54,75 +54,21 @@
                 </div>
                 
                 <div class="rooms-grid">
-                    
-                      
-                        
+                    <!-- Room cards will be inserted here by main.js -->
                 </div>
             </section>
-               <div id="room-view">
-                <header class="room-header">
-                    <h2 id="room-name-display">Room Name Will Go Here</h2>
-                    <button id="leave-room-btn" class="btn btn-outline">Leave Vibe</button>
-                </header>
 
-                <div class="room-layout">
-         
-                    <div class="chat-container">
-                        <div id="chat-messages" class="chat-messages">
-                    
-                        </div>
-                        <form id="chat-form" class="chat-form">
-                            <input type="text" id="chat-input" placeholder="Say something..." autocomplete="off" required>
-                            <button type="submit" class="btn btn-primary">Send</button>
-                        </form>
-                    </div>
-
-                    <div class="music-container">
-                        <div id="now-playing-container">
-                            <h3>Now Playing</h3>
-                            <p id="now-playing-text">Nothing is playing...</p>
-                        </div>
-
-                        <div id="queue-container">
-                            <h3>Up Next</h3>
-                            <div id="queue-list">
-                            </div>
-                        </div>
-                        
-                        <div id="search-container">
-                            <h3>Add to the Vibe</h3>
-                            <form id="search-form">
-                                <input type="text" id="search-input" placeholder="Search for a song...">
-                                <button type="submit" class="btn">Search</button>
-                            </form>
-                            <div id="search-results"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
             <!-- Footer -->
             <footer class="main-footer">
                 <p>Made with ❤️ for the Filipino music community</p>
-                <div class="footer-links">
-                    <a href="#" class="footer-link">Privacy</a>
-                    <a href="#" class="footer-link">Terms</a>
-                    <a href="#" class="footer-link">Support</a>
-                </div>
             </footer>
         </main>
     </div>
 
-    <!-- Socket.IO for real-time communication with the server -->
+    <!-- Scripts -->
     <script src="/socket.io/socket.io.js"></script>
-
-    <!-- Spotify's Web Playback SDK to turn the browser into a player -->
     <script src="https://sdk.scdn.co/spotify-player.js"></script>
-
-    <!-- A helper library to make calling the Spotify Web API easier -->
     <script src="https://unpkg.com/spotify-web-api-js/src/spotify-web-api.js"></script>
-
-    <!-- Your custom application logic (must be last) -->
     <script src="/js/main.js"></script>
 </body>
 </html>

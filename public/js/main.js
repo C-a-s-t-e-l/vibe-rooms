@@ -24,6 +24,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const heroSection = document.querySelector('.hero');
     const roomsSection = document.querySelector('.rooms-section');
     const roomsGrid = document.querySelector('.rooms-grid');
+    // --- (1) ADD THIS LINE ---
+    const createRoomBtn = document.getElementById('create-room-btn');
+
 
     const urlToken = new URLSearchParams(window.location.hash.substring(1)).get('access_token');
     const storedToken = localStorage.getItem('spotifyAccessToken');
@@ -38,6 +41,27 @@ document.addEventListener('DOMContentLoaded', () => {
         spotifyApi.setAccessToken(tokenToUse);
         setupLoggedInUI(tokenToUse);
     }
+
+    // --- (2) PASTE THIS ENTIRE BLOCK OF CODE HERE ---
+    if (createRoomBtn) {
+        createRoomBtn.addEventListener('click', () => {
+            // Make sure we have the user's Spotify info before proceeding
+            if (!currentUser) {
+                alert("Could not get your Spotify profile. Please wait a moment or try logging in again.");
+                return;
+            }
+
+            const roomName = prompt("Enter a name for your new Vibe Room:");
+            
+            // If the user entered a name and didn't just click "Cancel"
+            if (roomName && roomName.trim() !== "") {
+                console.log(`Attempting to create room: '${roomName.trim()}'`);
+                // This is the event your server is waiting for!
+                socket.emit('createRoom', { roomName: roomName.trim(), spotifyUser: currentUser });
+            }
+        });
+    }
+    // --- END OF NEW BLOCK ---
 
     function setupLoggedInUI(token) {
         heroSection.style.display = 'none';
@@ -56,20 +80,32 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof Spotify !== 'undefined') initializePlayer(token);
         socket.emit('getRooms');
     }
-
    // public/js/main.js
 
 socket.on('updateRoomsList', (rooms) => {
     roomsGrid.innerHTML = '';
     if (rooms.length === 0) {
         roomsGrid.innerHTML = '<p style="text-align: center; color: hsl(var(--muted-foreground));">No active vibes... Be the first to start one!</p>';
+        return;
     }
+
     rooms.forEach(room => {
-        const albumArt = room.nowPlaying?.track.albumArt || '/assets/placeholder.svg';
-        // NEW HTML structure for the improved room card
-        const roomCardHTML = `
-        <div class="room-card" data-room-id="${room.id}">
-            <img src="${albumArt}" alt="${room.name}" class="album-art"/>
+        // Create the card element directly
+        const roomCard = document.createElement('div');
+        roomCard.className = 'room-card';
+        roomCard.dataset.roomId = room.id;
+
+        // Determine the album art URL. Use placeholder if no song is playing.
+        const albumArtUrl = room.nowPlaying ? room.nowPlaying.track.albumArt : '/assets/placeholder.svg';
+
+        // Set the dynamic background image on the card itself
+        if (room.nowPlaying) {
+            roomCard.style.backgroundImage = `url(${albumArtUrl})`;
+        }
+
+        // Populate the inner content of the card
+        roomCard.innerHTML = `
+            <img src="${albumArtUrl}" alt="${room.name}" class="album-art"/>
             <div class="room-card-info">
                 <h3 class="room-name">${room.name}</h3>
                 <div class="room-card-footer">
@@ -83,15 +119,15 @@ socket.on('updateRoomsList', (rooms) => {
                     </div>
                 </div>
             </div>
-        </div>`;
-        roomsGrid.insertAdjacentHTML('beforeend', roomCardHTML);
-    });
+        `;
 
-    document.querySelectorAll('.room-card').forEach(card => {
-        card.addEventListener('click', () => {
-            const roomId = card.dataset.roomId;
-            window.location.href = `/room/${roomId}`;
+        // Add the click listener
+        roomCard.addEventListener('click', () => {
+            window.location.href = `/room/${room.id}`;
         });
+
+        // Add the fully constructed card to the grid
+        roomsGrid.appendChild(roomCard);
     });
 });
 
