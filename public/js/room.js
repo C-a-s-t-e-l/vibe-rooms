@@ -1,3 +1,5 @@
+// public/js/room.js (Complete, Final Corrected Version)
+
 document.addEventListener('DOMContentLoaded', () => {
     // --- UTILITY FUNCTIONS ---
     const getInitials = (name) => {
@@ -28,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let youtubePlayer;
     let currentTrackDuration = 0;
     let audioContextUnlocked = false;
+    let currentTrackSource = null;
 
     // --- DOM ELEMENTS ---
     const roomBackground = document.getElementById('room-background');
@@ -60,42 +63,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (audioContextUnlocked) return;
         if (youtubePlayer && typeof youtubePlayer.unMute === 'function') {
             youtubePlayer.unMute();
-            youtubePlayer.setVolume(dom.volumeSlider.value);
+            youtubePlayer.setVolume(volumeSlider.value);
+            audioContextUnlocked = true;
+            console.log("Audio context unlocked by user gesture.");
+
             if (youtubePlayer.getPlayerState() === YT.PlayerState.CUED) {
                 youtubePlayer.playVideo();
             }
-            audioContextUnlocked = true;
+
             document.removeEventListener('click', unlockAudio);
             document.removeEventListener('keydown', unlockAudio);
-            console.log("Audio context unlocked.");
         }
     };
     document.addEventListener('click', unlockAudio);
     document.addEventListener('keydown', unlockAudio);
-
-    window.onYouTubeIframeAPIReady = () => {
-        youtubePlayer = new YT.Player('youtube-player', {
-            height: '360', width: '640', playerVars: { 'playsinline': 1, 'controls': 0 },
-            events: {
-                'onReady': onPlayerReady,
-                'onStateChange': onPlayerStateChange // <-- CRITICAL: Listen for state changes
-            }
-        });
-    };
-
-    function onPlayerReady(event) {
-        event.target.setVolume(dom.volumeSlider.value);
-        console.log('YouTube Player is ready.');
-    }
-
-    function onPlayerStateChange(event) {
-        // When a new video is loaded and cued up (state 5), play it.
-        // This ensures we don't call playVideo() before the player is ready.
-        if (event.data === YT.PlayerState.CUED && audioContextUnlocked) {
-            youtubePlayer.playVideo();
-        }
-    }
-
+    
     // --- SPOTIFY & YOUTUBE SETUP ---
     const token = localStorage.getItem('spotifyAccessToken');
     if (!token) { window.location.href = '/'; return; }
@@ -109,7 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
             getOAuthToken: cb => { cb(token); }
         });
         spotifyPlayer.addListener('player_state_changed', (state) => {
-            if (!state) return;
+            if (!state || currentTrackSource !== 'spotify') return;
             const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7Z"/></svg>`;
             const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
             playPauseBtn.innerHTML = state.paused ? playIcon : pauseIcon;
@@ -121,14 +103,33 @@ document.addEventListener('DOMContentLoaded', () => {
     window.onYouTubeIframeAPIReady = () => {
         youtubePlayer = new YT.Player('youtube-player', {
             height: '360', width: '640', playerVars: { 'playsinline': 1, 'controls': 0 },
-            events: { 'onReady': onPlayerReady }
+            events: { 'onReady': onPlayerReady, 'onStateChange': onPlayerStateChange }
         });
     };
-    
+
     function onPlayerReady(event) {
-        const initialVolume = volumeSlider.value;
-        event.target.setVolume(initialVolume);
-        console.log('YouTube Player is ready and volume is set.');
+        console.log('YouTube Player is ready.');
+        event.target.setVolume(volumeSlider.value);
+        if (audioContextUnlocked) {
+            event.target.unMute();
+        }
+    }
+
+    function onPlayerStateChange(event) {
+        if (currentTrackSource !== 'youtube') return;
+
+        const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7Z"/></svg>`;
+        const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
+        
+        if (event.data === YT.PlayerState.PLAYING) {
+            playPauseBtn.innerHTML = pauseIcon;
+        } else if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED) {
+            playPauseBtn.innerHTML = playIcon;
+        }
+        
+        if (event.data === YT.PlayerState.CUED && audioContextUnlocked) {
+            youtubePlayer.playVideo();
+        }
     }
 
     spotifyApi.getMe().then(user => {
@@ -181,6 +182,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const updateNowPlayingUI = (nowPlaying) => {
         clearInterval(nowPlayingInterval);
         currentTrackDuration = 0;
+        currentTrackSource = nowPlaying ? nowPlaying.track.source : null;
 
         if (!nowPlaying || !nowPlaying.track) {
             nowPlayingCard.classList.remove('is-playing');
@@ -272,10 +274,11 @@ document.addEventListener('DOMContentLoaded', () => {
     chatForm.addEventListener('submit', (e) => {
         e.preventDefault();
         if (chatInput.value.trim() !== '') {
+            // FIX #1: Changed 'message' to 'text' and 'userName' to 'user' to match the receiver.
             socket.emit('sendMessage', { 
                 roomId: currentRoomId, 
-                message: chatInput.value, 
-                userName: currentUser.display_name,
+                text: chatInput.value, 
+                user: currentUser.display_name,
                 userId: currentUser.id
             });
             chatInput.value = '';
@@ -325,9 +328,27 @@ document.addEventListener('DOMContentLoaded', () => {
         linkInput.value = '';
     });
 
-    playPauseBtn.addEventListener('click', () => { if (spotifyPlayer) spotifyPlayer.togglePlay(); });
-    prevBtn.addEventListener('click', () => { if (isHost) socket.emit('seekTrack', { roomId: currentRoomId, position_ms: 0 }); });
-    nextBtn.addEventListener('click', () => { if (isHost) socket.emit('skipTrack', { roomId: currentRoomId }); });
+    // --- SMART PLAYBACK CONTROLS ---
+    playPauseBtn.addEventListener('click', () => {
+        if (currentTrackSource === 'spotify' && spotifyPlayer) {
+            spotifyPlayer.togglePlay();
+        } else if (currentTrackSource === 'youtube' && youtubePlayer) {
+            const playerState = youtubePlayer.getPlayerState();
+            if (playerState === YT.PlayerState.PLAYING) {
+                youtubePlayer.pauseVideo();
+            } else {
+                youtubePlayer.playVideo();
+            }
+        }
+    });
+
+    prevBtn.addEventListener('click', () => { 
+        if (isHost) socket.emit('seekTrack', { roomId: currentRoomId, position_ms: 0 }); 
+    });
+    
+    nextBtn.addEventListener('click', () => { 
+        if (isHost) socket.emit('skipTrack', { roomId: currentRoomId }); 
+    });
 
     volumeSlider.addEventListener('input', (e) => {
         const volume = e.target.value;
@@ -376,7 +397,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     socket.on('queueUpdated', updateQueueUI);
     
-     socket.on('newSongPlaying', (nowPlaying) => {
+    socket.on('newSongPlaying', (nowPlaying) => {
         updateNowPlayingUI(nowPlaying);
     
         if (!nowPlaying || !nowPlaying.track) {
@@ -402,7 +423,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (track.source === 'youtube') {
             if (spotifyPlayer) spotifyPlayer.pause();
             if (youtubePlayer && youtubePlayer.loadVideoById) {
-                // THE FIX: Just load the video. The 'onPlayerStateChange' event will handle playing it.
+                // FIX #2: Forcefully unmute and set volume right before loading the new track.
+                youtubePlayer.unMute();
+                youtubePlayer.setVolume(volumeSlider.value);
+
                 youtubePlayer.loadVideoById({
                     videoId: track.id,
                     startSeconds: Math.floor(latency / 1000)
