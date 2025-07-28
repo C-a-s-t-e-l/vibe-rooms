@@ -56,31 +56,45 @@ document.addEventListener('DOMContentLoaded', () => {
     const linkInput = document.getElementById('link-input');
 
     // --- AUDIO UNLOCK (FIX FOR BROWSER AUTOPLAY) ---
-   const unlockAudio = () => {
-    if (audioContextUnlocked) return;
+    const unlockAudio = () => {
+        if (audioContextUnlocked) return;
+        if (youtubePlayer && typeof youtubePlayer.unMute === 'function') {
+            youtubePlayer.unMute();
+            youtubePlayer.setVolume(dom.volumeSlider.value);
+            if (youtubePlayer.getPlayerState() === YT.PlayerState.CUED) {
+                youtubePlayer.playVideo();
+            }
+            audioContextUnlocked = true;
+            document.removeEventListener('click', unlockAudio);
+            document.removeEventListener('keydown', unlockAudio);
+            console.log("Audio context unlocked.");
+        }
+    };
+    document.addEventListener('click', unlockAudio);
+    document.addEventListener('keydown', unlockAudio);
 
-    // Directly command the YouTube player to unmute itself.
-    // This is the most reliable way to handle its audio context.
-    if (youtubePlayer && typeof youtubePlayer.unMute === 'function') {
-        youtubePlayer.unMute();
-        // Also ensure the volume is set based on the slider
-        youtubePlayer.setVolume(volumeSlider.value);
+    window.onYouTubeIframeAPIReady = () => {
+        youtubePlayer = new YT.Player('youtube-player', {
+            height: '360', width: '640', playerVars: { 'playsinline': 1, 'controls': 0 },
+            events: {
+                'onReady': onPlayerReady,
+                'onStateChange': onPlayerStateChange // <-- CRITICAL: Listen for state changes
+            }
+        });
+    };
+
+    function onPlayerReady(event) {
+        event.target.setVolume(dom.volumeSlider.value);
+        console.log('YouTube Player is ready.');
     }
-    
-    // If a video was loaded but couldn't play, this will start it.
-    if (youtubePlayer && typeof youtubePlayer.getPlayerState === 'function' && youtubePlayer.getPlayerState() === YT.PlayerState.CUED) {
-        youtubePlayer.playVideo();
+
+    function onPlayerStateChange(event) {
+        // When a new video is loaded and cued up (state 5), play it.
+        // This ensures we don't call playVideo() before the player is ready.
+        if (event.data === YT.PlayerState.CUED && audioContextUnlocked) {
+            youtubePlayer.playVideo();
+        }
     }
-    
-    console.log("Audio Context Unlocked by user interaction.");
-    audioContextUnlocked = true;
-    
-    // Clean up the event listeners so this only runs once
-    document.removeEventListener('click', unlockAudio);
-    document.removeEventListener('keydown', unlockAudio);
-};
-document.addEventListener('click', unlockAudio);
-document.addEventListener('keydown', unlockAudio);
 
     // --- SPOTIFY & YOUTUBE SETUP ---
     const token = localStorage.getItem('spotifyAccessToken');
@@ -362,47 +376,40 @@ document.addEventListener('keydown', unlockAudio);
 
     socket.on('queueUpdated', updateQueueUI);
     
-    socket.on('newSongPlaying', (nowPlaying) => {
-    updateNowPlayingUI(nowPlaying);
-
-    if (!nowPlaying || !nowPlaying.track) {
-        if (spotifyPlayer) try { spotifyPlayer.pause(); } catch(e) {}
-        if (youtubePlayer && youtubePlayer.pauseVideo) youtubePlayer.pauseVideo();
-        return;
-    }
-
-    const track = nowPlaying.track;
-    const latency = Date.now() - nowPlaying.startTime;
-
-    if (track.source === 'spotify') {
-        if (youtubePlayer && youtubePlayer.pauseVideo) youtubePlayer.pauseVideo();
-        if(spotifyPlayer) {
-            spotifyPlayer._options.getOAuthToken(access_token => {
-                fetch(`https://api.spotify.com/v1/me/player/play?device_id=${spotifyPlayer._options.id}`, {
-                    method: 'PUT',
-                    body: JSON.stringify({ uris: [track.uri], position_ms: latency }),
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${access_token}` },
-                }).catch(e => console.error("Error starting spotify playback", e));
-            });
+     socket.on('newSongPlaying', (nowPlaying) => {
+        updateNowPlayingUI(nowPlaying);
+    
+        if (!nowPlaying || !nowPlaying.track) {
+            if (spotifyPlayer) spotifyPlayer.pause();
+            if (youtubePlayer && youtubePlayer.pauseVideo) youtubePlayer.pauseVideo();
+            return;
         }
-    } else if (track.source === 'youtube') {
-        if (spotifyPlayer) try { spotifyPlayer.pause(); } catch(e) {}
-        if (youtubePlayer && youtubePlayer.loadVideoById) {
-            // Load the video and cue it up
-            youtubePlayer.loadVideoById({
-                videoId: track.id,
-                startSeconds: Math.floor(latency / 1000)
-            });
-
-            // IMPORTANT: Only attempt to play if the user has already interacted with the page.
-            // If they haven't, the unlockAudio function will handle playing the video
-            // once they do interact.
-            if (audioContextUnlocked) {
-                youtubePlayer.playVideo();
+    
+        const { track, startTime } = nowPlaying;
+        const latency = Date.now() - startTime;
+    
+        if (track.source === 'spotify') {
+            if (youtubePlayer && youtubePlayer.pauseVideo) youtubePlayer.pauseVideo();
+            if (spotifyPlayer) {
+                spotifyPlayer._options.getOAuthToken(access_token => {
+                    fetch(`https://api.spotify.com/v1/me/player/play?device_id=${spotifyPlayer._options.id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ uris: [track.uri], position_ms: latency }),
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${access_token}` },
+                    });
+                });
+            }
+        } else if (track.source === 'youtube') {
+            if (spotifyPlayer) spotifyPlayer.pause();
+            if (youtubePlayer && youtubePlayer.loadVideoById) {
+                // THE FIX: Just load the video. The 'onPlayerStateChange' event will handle playing it.
+                youtubePlayer.loadVideoById({
+                    videoId: track.id,
+                    startSeconds: Math.floor(latency / 1000)
+                });
             }
         }
-    }
-});
+    });
 
     socket.on('kicked', ({ roomName }) => {
         alert(`You have been kicked from the room "${roomName}" by the host.`);
