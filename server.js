@@ -1,4 +1,4 @@
-// server.js (Final, Bulletproof Version)
+// server.js (Corrected and Complete Version)
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
@@ -49,7 +49,10 @@ app.get('*', (req, res) => {
 
 // --- Socket.IO Logic ---
 io.on('connection', (socket) => {
+    console.log('A user connected:', socket.id);
+    
     socket.on('getRooms', () => socket.emit('updateRoomsList', getPublicRoomsData()));
+
     socket.on('createRoom', ({ roomName, spotifyUser }) => {
         const roomId = `room_${Date.now()}`;
         rooms[roomId] = {
@@ -59,18 +62,24 @@ io.on('connection', (socket) => {
         };
         socket.emit('roomCreated', { roomId });
         io.emit('updateRoomsList', getPublicRoomsData());
+        console.log(`Room created: ${roomName} (ID: ${roomId})`);
     });
 
     socket.on('joinRoom', ({ roomId, spotifyUser }) => handleJoinRoom(socket, roomId, spotifyUser));
     socket.on('sendMessage', (msg) => io.to(msg.roomId).emit('newChatMessage', msg));
+    
+    // Song/Playlist addition handlers
     socket.on('addSong', (data) => handleAddSpotifyTrack(data));
     socket.on('addYouTubeTrack', (data) => handleAddYouTubeTrack(data));
+    socket.on('addPlaylist', (data) => handleAddPlaylist(data)); // <-- FIX: Added missing handler
+
     socket.on('skipTrack', (data) => {
         const room = rooms[data.roomId];
         if (room && userSockets[socket.id]?.spotifyId === room.host) {
             playNextSong(data.roomId);
         }
     });
+
     socket.on('disconnect', () => handleLeaveRoom(socket));
 });
 
@@ -80,20 +89,17 @@ const getPublicRoomsData = () => Object.values(rooms).map(r => ({
     id: r.id, name: r.name, listenerCount: r.listeners.size, nowPlaying: r.nowPlaying
 }));
 
-// THE FIX #1: Create a clean "state" object without timers before sending to the client.
 const getSanitizedRoomState = (room) => {
     if (!room) return null;
-    // This creates a new object, copying everything EXCEPT the problematic timer properties.
     const { songEndTimer, deletionTimer, ...safeRoomState } = room;
-    // Also, convert the Set of listeners to an array for JSON compatibility.
     safeRoomState.listeners = Array.from(safeRoomState.listeners);
     return safeRoomState;
 };
 
 async function handleAddSpotifyTrack({ roomId, trackId, token }) {
-    // ... (This function is correct, no changes needed)
     const room = rooms[roomId];
-    if (!room) return;
+    if (!room || !token) return;
+    console.log(`Attempting to add track ${trackId} to room ${roomId}`);
     try {
         spotifyApi.setAccessToken(token);
         const { body } = await spotifyApi.getTrack(trackId);
@@ -105,14 +111,14 @@ async function handleAddSpotifyTrack({ roomId, trackId, token }) {
         room.queue.push(track);
         io.to(roomId).emit('queueUpdated', room.queue);
         if (!room.nowPlaying) playNextSong(roomId);
-    } catch (e) { console.error("Error adding Spotify track:", e.message); }
+    } catch (e) { console.error("Error adding Spotify track:", e); }
     finally { spotifyApi.resetAccessToken(); }
 }
 
 async function handleAddYouTubeTrack({ roomId, videoId }) {
-    // ... (This function is correct, no changes needed)
     const room = rooms[roomId];
     if (!room || !YOUTUBE_API_KEY) return;
+    console.log(`Attempting to add YouTube video ${videoId} to room ${roomId}`);
     try {
         const response = await axios.get(`https://www.googleapis.com/youtube/v3/videos`, {
             params: { id: videoId, key: YOUTUBE_API_KEY, part: 'snippet,contentDetails' }
@@ -132,28 +138,56 @@ async function handleAddYouTubeTrack({ roomId, videoId }) {
     } catch (e) { console.error("Error adding YouTube track:", e.response?.data?.error || e.message); }
 }
 
+// FIX: Added the entire missing function to handle playlists
+async function handleAddPlaylist({ roomId, playlistId, token }) {
+    const room = rooms[roomId];
+    if (!room || !token) return;
+    console.log(`Attempting to add playlist ${playlistId} to room ${roomId}`);
+    try {
+        spotifyApi.setAccessToken(token);
+        const { body } = await spotifyApi.getPlaylistTracks(playlistId);
+        const tracks = body.items.map(item => {
+            const track = item.track;
+            if (!track) return null;
+            return {
+                id: track.id, name: track.name, artist: track.artists.map(a => a.name).join(', '),
+                albumArt: track.album.images[0]?.url, duration_ms: track.duration_ms,
+                uri: track.uri, source: 'spotify'
+            };
+        }).filter(t => t !== null); // Filter out any null tracks
+
+        room.queue.push(...tracks);
+        io.to(roomId).emit('queueUpdated', room.queue);
+        if (!room.nowPlaying) playNextSong(roomId);
+    } catch (e) { console.error("Error adding Spotify playlist:", e); }
+    finally { spotifyApi.resetAccessToken(); }
+}
 
 function playNextSong(roomId) {
-    // ... (This function is correct, no changes needed)
     const room = rooms[roomId];
     if (!room) return;
     if (room.songEndTimer) clearTimeout(room.songEndTimer);
+
     if (room.queue.length === 0) {
         room.nowPlaying = null;
         io.to(roomId).emit('newSongPlaying', null);
         io.emit('updateRoomsList', getPublicRoomsData());
         return;
     }
+
     const nextTrack = room.queue.shift();
     room.nowPlaying = { track: nextTrack, startTime: Date.now() };
+
+    console.log(`Now playing in room ${roomId}: ${nextTrack.name}`);
     io.to(roomId).emit('newSongPlaying', room.nowPlaying);
     io.to(roomId).emit('queueUpdated', room.queue);
     io.emit('updateRoomsList', getPublicRoomsData());
+
     room.songEndTimer = setTimeout(() => playNextSong(roomId), nextTrack.duration_ms + 1000);
 }
 
 function handleJoinRoom(socket, roomId, spotifyUser) {
-    if (userSockets[socket.id]?.roomId) handleLeaveRoom(socket, true); // Leave previous room if any
+    if (userSockets[socket.id]?.roomId) handleLeaveRoom(socket, true);
     const room = rooms[roomId];
     if (!room) return socket.emit('error', { message: 'Room not found.' });
 
@@ -166,9 +200,7 @@ function handleJoinRoom(socket, roomId, spotifyUser) {
     room.listeners.add(socket.id);
     userSockets[socket.id] = { id: socket.id, spotifyId: spotifyUser.id, name: spotifyUser.display_name, roomId };
 
-    // THIS IS THE FIX for the crash. We send the sanitized state.
     socket.emit('roomState', getSanitizedRoomState(room));
-
     io.to(roomId).emit('newChatMessage', { system: true, text: `${spotifyUser.display_name} has joined the vibe.` });
     io.emit('updateRoomsList', getPublicRoomsData());
 }
@@ -176,6 +208,7 @@ function handleJoinRoom(socket, roomId, spotifyUser) {
 function handleLeaveRoom(socket) {
     const user = userSockets[socket.id];
     if (!user || !user.roomId) return;
+    console.log('A user disconnected:', socket.id);
 
     const roomId = user.roomId;
     const room = rooms[roomId];
@@ -187,23 +220,19 @@ function handleLeaveRoom(socket) {
 
     io.to(roomId).emit('newChatMessage', { system: true, text: `${user.name} has left the vibe.` });
 
-    // THE FIX #2: Wait 5 seconds before checking if the room is empty.
-    // This gives the user time to reconnect on a page reload.
     setTimeout(() => {
-        const currentRoom = rooms[roomId]; // Re-check room existence
+        const currentRoom = rooms[roomId];
         if (!currentRoom) return;
-
-        // If after 5 seconds the room is truly empty, schedule it for permanent deletion.
         if (currentRoom.listeners.size === 0) {
             currentRoom.deletionTimer = setTimeout(() => {
-                console.log(`Deleting empty room: ${currentRoom.name}`);
+                console.log(`Deleting empty room: ${currentRoom.name} (ID: ${roomId})`);
+                if (currentRoom.songEndTimer) clearTimeout(currentRoom.songEndTimer);
                 delete rooms[roomId];
                 io.emit('updateRoomsList', getPublicRoomsData());
-            }, 30 * 60 * 1000); // 30-minute grace period
+            }, 30 * 60 * 1000);
         }
-        // Always update the lobby with the latest listener count.
         io.emit('updateRoomsList', getPublicRoomsData());
-    }, 5000); // 5-second grace period for reloads.
+    }, 5000);
 }
 
 server.listen(PORT, () => console.log(`Vibe Rooms server is live on http://localhost:${PORT}`));

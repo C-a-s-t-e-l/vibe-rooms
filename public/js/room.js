@@ -1,4 +1,4 @@
-// public/js/room.js (Complete, Final Corrected Version)
+// public/js/room.js (Final, Rebuilt, and Correct Version)
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- UTILITY FUNCTIONS ---
@@ -31,8 +31,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentTrackDuration = 0;
     let audioContextUnlocked = false;
     let currentTrackSource = null;
+    let spotifyDeviceId = null;
 
-    // --- DOM ELEMENTS ---
+    // --- DOM ELEMENTS (No changes) ---
     const roomBackground = document.getElementById('room-background');
     const roomNameDisplay = document.getElementById('room-name-display');
     const listenerCountDisplay = document.getElementById('listener-count-display');
@@ -58,27 +59,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const linkForm = document.getElementById('link-form');
     const linkInput = document.getElementById('link-input');
 
-    // --- AUDIO UNLOCK (FIX FOR BROWSER AUTOPLAY) ---
+    // --- ROBUST AUDIO UNLOCK ---
     const unlockAudio = () => {
         if (audioContextUnlocked) return;
-        if (youtubePlayer && typeof youtubePlayer.unMute === 'function') {
+        audioContextUnlocked = true;
+        
+        if (spotifyPlayer) {
+             spotifyPlayer.resume().then(() => console.log('Playback resumed on user gesture!'));
+        }
+        if (youtubePlayer) {
             youtubePlayer.unMute();
             youtubePlayer.setVolume(volumeSlider.value);
-            audioContextUnlocked = true;
-            console.log("Audio context unlocked by user gesture.");
-
-            if (youtubePlayer.getPlayerState() === YT.PlayerState.CUED) {
-                youtubePlayer.playVideo();
+             if (youtubePlayer.getPlayerState() === YT.PlayerState.CUED) {
+                 youtubePlayer.playVideo();
             }
-
-            document.removeEventListener('click', unlockAudio);
-            document.removeEventListener('keydown', unlockAudio);
         }
+        console.log("Audio unlocked by user gesture.");
     };
-    document.addEventListener('click', unlockAudio);
-    document.addEventListener('keydown', unlockAudio);
     
-    // --- SPOTIFY & YOUTUBE SETUP ---
+    // --- INITIALIZATION SEQUENCE ---
     const token = localStorage.getItem('spotifyAccessToken');
     if (!token) { window.location.href = '/'; return; }
     
@@ -90,13 +89,26 @@ document.addEventListener('DOMContentLoaded', () => {
             name: 'Vibe Rooms Player',
             getOAuthToken: cb => { cb(token); }
         });
+
+        // STEP 1: Wait for the player to be fully ready.
+        spotifyPlayer.addListener('ready', ({ device_id }) => {
+            console.log('Spotify Player is ready with Device ID', device_id);
+            spotifyDeviceId = device_id;
+            // The player is ready, now we can start the main application logic.
+            initializeRoom();
+        });
+        
         spotifyPlayer.addListener('player_state_changed', (state) => {
             if (!state || currentTrackSource !== 'spotify') return;
             const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7Z"/></svg>`;
             const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
             playPauseBtn.innerHTML = state.paused ? playIcon : pauseIcon;
         });
-        spotifyPlayer.addListener('ready', ({ device_id }) => console.log('Room Player is ready with Device ID', device_id));
+
+        spotifyPlayer.addListener('initialization_error', ({ message }) => { console.error('Init Error:', message); });
+        spotifyPlayer.addListener('authentication_error', ({ message }) => { console.error('Auth Error:', message); });
+        spotifyPlayer.addListener('account_error', ({ message }) => { console.error('Account Error:', message); });
+        
         spotifyPlayer.connect();
     };
 
@@ -107,46 +119,184 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    function onPlayerReady(event) {
-        console.log('YouTube Player is ready.');
-        event.target.setVolume(volumeSlider.value);
-        if (audioContextUnlocked) {
-            event.target.unMute();
-        }
-    }
+    function onPlayerReady(event) { console.log('YouTube Player is ready.'); }
 
     function onPlayerStateChange(event) {
         if (currentTrackSource !== 'youtube') return;
-
         const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7Z"/></svg>`;
         const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
-        
-        if (event.data === YT.PlayerState.PLAYING) {
-            playPauseBtn.innerHTML = pauseIcon;
-        } else if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED) {
-            playPauseBtn.innerHTML = playIcon;
-        }
-        
-        if (event.data === YT.PlayerState.CUED && audioContextUnlocked) {
-            youtubePlayer.playVideo();
-        }
+        playPauseBtn.innerHTML = event.data === YT.PlayerState.PLAYING ? pauseIcon : playIcon;
     }
 
-    spotifyApi.getMe().then(user => {
-        currentUser = user;
-        socket.emit('joinRoom', { roomId: currentRoomId, spotifyUser: currentUser });
-    }).catch(() => {
-        localStorage.removeItem('spotifyAccessToken');
-        window.location.href = '/';
-    });
+    // THIS IS THE FIX: A MASTER FUNCTION TO SET UP EVERYTHING IN ORDER
+    function initializeRoom() {
+        // This listener will now handle audio unlocking on first click AND after reloads.
+        document.addEventListener('click', unlockAudio);
+        document.addEventListener('keydown', unlockAudio);
 
-    // --- UI RENDERING FUNCTIONS ---
+        // STEP 2: Get user identity
+        spotifyApi.getMe().then(user => {
+            currentUser = user;
+            
+            // STEP 3: Set up all Socket.IO listeners
+            setupSocketListeners();
+            
+            // STEP 4: Set up all UI event listeners
+            setupUIEventListeners();
+            
+            // STEP 5: Finally, join the room
+            socket.emit('joinRoom', { roomId: currentRoomId, spotifyUser: currentUser });
+
+        }).catch(() => {
+            localStorage.removeItem('spotifyAccessToken');
+            window.location.href = '/';
+        });
+    }
+
+    function setupSocketListeners() {
+        socket.on('roomState', (data) => {
+            if (!data) return;
+            roomNameDisplay.textContent = data.name;
+            updateQueueUI(data.queue);
+            updateNowPlayingUI(data.nowPlaying);
+            if (currentUser && data.host === currentUser.id) {
+                isHost = true;
+                hostControlsWrapper.classList.remove('is-guest');
+            } else {
+                isHost = false;
+                hostControlsWrapper.classList.add('is-guest');
+            }
+        });
+
+        socket.on('newSongPlaying', (nowPlaying) => {
+            updateNowPlayingUI(nowPlaying);
+            if (!nowPlaying || !nowPlaying.track) {
+                if (spotifyPlayer) spotifyPlayer.pause();
+                if (youtubePlayer) youtubePlayer.pauseVideo();
+                return;
+            }
+            const { track, startTime } = nowPlaying;
+            const latency = Date.now() - startTime;
+            if (track.source === 'spotify') {
+                if (youtubePlayer) youtubePlayer.pauseVideo();
+                if (spotifyPlayer && spotifyDeviceId) {
+                    spotifyPlayer._options.getOAuthToken(access_token => {
+                        fetch(`https://api.spotify.com/v1/me/player/play?device_id=${spotifyDeviceId}`, {
+                            method: 'PUT',
+                            body: JSON.stringify({ uris: [track.uri], position_ms: latency }),
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${access_token}` },
+                        }).catch(e => console.error("Error starting Spotify playback:", e));
+                    });
+                }
+            } else if (track.source === 'youtube') {
+                if (spotifyPlayer) spotifyPlayer.pause();
+                if (youtubePlayer) {
+                    youtubePlayer.loadVideoById({ videoId: track.id, startSeconds: Math.floor(latency / 1000) });
+                    if (audioContextUnlocked) {
+                        youtubePlayer.unMute();
+                        youtubePlayer.setVolume(volumeSlider.value);
+                        youtubePlayer.playVideo();
+                    }
+                }
+            }
+        });
+
+        socket.on('newChatMessage', (message) => message.system ? renderSystemMessage(message.text) : renderChatMessage(message));
+        socket.on('updateRoomsList', (rooms) => {
+            const currentRoomData = rooms.find(r => r.id === currentRoomId);
+            if (currentRoomData) listenerCountDisplay.textContent = currentRoomData.listenerCount;
+        });
+        socket.on('queueUpdated', updateQueueUI);
+        socket.on('kicked', ({ roomName }) => {
+            alert(`You have been kicked from the room "${roomName}" by the host.`);
+            window.location.href = '/';
+        });
+    }
+
+    // This function now correctly attaches all UI event listeners.
+    function setupUIEventListeners() {
+        chatForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (chatInput.value.trim() !== '' && currentUser) {
+                socket.emit('sendMessage', { 
+                    roomId: currentRoomId, text: chatInput.value, 
+                    user: currentUser.display_name, userId: currentUser.id
+                });
+                chatInput.value = '';
+            }
+        });
+        
+        searchForm.addEventListener('submit', (e) => e.preventDefault());
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value;
+            if (query.trim() !== '') {
+                searchResults.classList.add('is-visible');
+                spotifyApi.searchTracks(query, { limit: 10 }).then(data => displaySearchResults(data.tracks.items));
+            } else {
+                searchResults.classList.remove('is-visible');
+            }
+        });
+
+        linkForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const url = linkInput.value;
+            if (!url.trim()) return;
+            const spTrackRegex = /open\.spotify\.com\/track\/([a-zA-Z0-9]+)/;
+            const spPlaylistRegex = /open\.spotify\.com\/playlist\/([a-zA-Z0-9]+)/;
+            const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=|embed\/|v\/|)([\w-]{11})/;
+            const spTrackMatch = url.match(spTrackRegex);
+            const spPlaylistMatch = url.match(spPlaylistRegex);
+            const ytMatch = url.match(ytRegex);
+            if (spTrackMatch && spTrackMatch[1]) {
+                socket.emit('addSong', { roomId: currentRoomId, trackId: spTrackMatch[1], token });
+            } else if (spPlaylistMatch && spPlaylistMatch[1]) {
+                socket.emit('addPlaylist', { roomId: currentRoomId, playlistId: spPlaylistMatch[1], token });
+            } else if (ytMatch && ytMatch[1]) {
+                socket.emit('addYouTubeTrack', { roomId: currentRoomId, videoId: ytMatch[1] });
+            } else {
+                alert("Invalid Link. Please paste a valid Spotify track/playlist or YouTube video link.");
+            }
+            linkInput.value = '';
+        });
+
+        playPauseBtn.addEventListener('click', () => {
+            if (!audioContextUnlocked) unlockAudio();
+            if (currentTrackSource === 'spotify' && spotifyPlayer) spotifyPlayer.togglePlay();
+            else if (currentTrackSource === 'youtube' && youtubePlayer) {
+                const state = youtubePlayer.getPlayerState();
+                if (state === YT.PlayerState.PLAYING) youtubePlayer.pauseVideo(); else youtubePlayer.playVideo();
+            }
+        });
+
+        prevBtn.addEventListener('click', () => { if (isHost) socket.emit('seekTrack', { roomId: currentRoomId, position_ms: 0 }); });
+        nextBtn.addEventListener('click', () => { if (isHost) socket.emit('skipTrack', { roomId: currentRoomId }); });
+        
+        volumeSlider.addEventListener('input', (e) => {
+            const volume = e.target.value;
+            if (spotifyPlayer) spotifyPlayer.setVolume(volume / 100);
+            if (youtubePlayer) youtubePlayer.setVolume(volume);
+        });
+        
+        document.getElementById('progress-bar-container').addEventListener('click', (e) => {
+            if (!isHost || currentTrackDuration === 0) return;
+            const pos = e.offsetX / e.currentTarget.clientWidth;
+            socket.emit('seekTrack', { roomId: currentRoomId, position_ms: Math.floor(pos * currentTrackDuration) });
+        });
+        
+        document.addEventListener('click', (e) => {
+            const searchContainer = document.querySelector('.search-container');
+            if (searchContainer && !searchContainer.contains(e.target)) {
+                searchResults.classList.remove('is-visible');
+            }
+        });
+    }
+
+    // --- UI RENDERING FUNCTIONS (no changes from here) ---
     const renderChatMessage = (message) => {
         const msgDiv = document.createElement('div');
         msgDiv.className = 'chat-message';
         const initials = getInitials(message.user);
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
         msgDiv.innerHTML = `
             <div class="chat-message__avatar">${initials}</div>
             <div class="chat-message__content">
@@ -161,16 +311,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isHost && currentUser && currentUser.id !== message.userId) {
             usernameEl.classList.add('kickable');
             usernameEl.title = 'Click to moderate';
-            usernameEl.onclick = () => {
-                if (confirm(`Do you want to kick ${message.user} from the room?`)) {
-                    socket.emit('kickUser', { roomId: currentRoomId, targetSpotifyId: message.userId });
-                }
-            };
+            usernameEl.onclick = () => { if (confirm(`Do you want to kick ${message.user} from the room?`)) socket.emit('kickUser', { roomId: currentRoomId, targetSpotifyId: message.userId }); };
         }
         chatMessages.appendChild(msgDiv);
         chatMessages.scrollTop = chatMessages.scrollHeight;
     };
-    
     const renderSystemMessage = (text) => {
         const p = document.createElement('p');
         p.className = 'system-message';
@@ -178,12 +323,10 @@ document.addEventListener('DOMContentLoaded', () => {
         chatMessages.appendChild(p);
         chatMessages.scrollTop = chatMessages.scrollHeight;
     };
-
     const updateNowPlayingUI = (nowPlaying) => {
         clearInterval(nowPlayingInterval);
         currentTrackDuration = 0;
         currentTrackSource = nowPlaying ? nowPlaying.track.source : null;
-
         if (!nowPlaying || !nowPlaying.track) {
             nowPlayingCard.classList.remove('is-playing');
             nowPlayingArt.src = '/assets/placeholder.svg';
@@ -195,7 +338,6 @@ document.addEventListener('DOMContentLoaded', () => {
             totalTimeDisplay.textContent = '0:00';
             return;
         }
-
         nowPlayingCard.classList.add('is-playing');
         const track = nowPlaying.track;
         currentTrackDuration = track.duration_ms;
@@ -204,7 +346,6 @@ document.addEventListener('DOMContentLoaded', () => {
         nowPlayingArtist.textContent = track.artist;
         roomBackground.style.backgroundImage = `url('${track.albumArt}')`;
         totalTimeDisplay.textContent = formatTime(track.duration_ms);
-
         nowPlayingInterval = setInterval(() => {
             const elapsedTime = Date.now() - nowPlaying.startTime;
             if (elapsedTime >= track.duration_ms) {
@@ -217,7 +358,6 @@ document.addEventListener('DOMContentLoaded', () => {
             currentTimeDisplay.textContent = formatTime(elapsedTime);
         }, 500);
     };
-
     const updateQueueUI = (queue) => {
         queueList.innerHTML = '';
         if (!queue || queue.length === 0) {
@@ -238,17 +378,14 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
         });
     };
-    
     const displaySearchResults = (tracks) => {
         searchResults.innerHTML = '';
         if (!tracks || tracks.length === 0) return;
-        
         tracks.slice(0, 5).forEach(track => {
             const trackDiv = document.createElement('div');
             trackDiv.className = 'queue-item';
             trackDiv.style.cursor = 'pointer';
             const albumArtUrl = track.album.images.find(img => img.height >= 48)?.url || '/assets/placeholder.svg';
-            
             trackDiv.innerHTML = `
                 <span class="queue-item__number">
                     <svg style="width:24px;height:24px" viewBox="0 0 24 24"><path fill="currentColor" d="M19,11H13V5h-2v6H5v2h6v6h2v-6h6V11z" /></svg>
@@ -269,174 +406,4 @@ document.addEventListener('DOMContentLoaded', () => {
             searchResults.appendChild(trackDiv);
         });
     };
-
-    // --- EVENT LISTENERS ---
-    chatForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        if (chatInput.value.trim() !== '') {
-            // FIX #1: Changed 'message' to 'text' and 'userName' to 'user' to match the receiver.
-            socket.emit('sendMessage', { 
-                roomId: currentRoomId, 
-                text: chatInput.value, 
-                user: currentUser.display_name,
-                userId: currentUser.id
-            });
-            chatInput.value = '';
-        }
-    });
-
-    searchForm.addEventListener('submit', (e) => e.preventDefault());
-    searchInput.addEventListener('input', () => {
-        const query = searchInput.value;
-        if (query.trim() !== '') {
-            searchResults.classList.add('is-visible');
-            spotifyApi.searchTracks(query, { limit: 10 }).then(data => displaySearchResults(data.tracks.items));
-        } else {
-            searchResults.classList.remove('is-visible');
-        }
-    });
-
-    document.addEventListener('click', (e) => {
-        const searchContainer = document.querySelector('.search-container');
-        if (searchContainer && !searchContainer.contains(e.target)) {
-            searchResults.classList.remove('is-visible');
-        }
-    });
-    
-    linkForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const url = linkInput.value;
-        if (!url.trim()) return;
-
-        const spTrackRegex = /open\.spotify\.com\/track\/([a-zA-Z0-9]+)/;
-        const spPlaylistRegex = /open\.spotify\.com\/playlist\/([a-zA-Z0-9]+)/;
-        const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=|embed\/|v\/|)([\w-]{11})/;
-
-        const spTrackMatch = url.match(spTrackRegex);
-        const spPlaylistMatch = url.match(spPlaylistRegex);
-        const ytMatch = url.match(ytRegex);
-
-        if (spTrackMatch && spTrackMatch[1]) {
-            socket.emit('addSong', { roomId: currentRoomId, trackId: spTrackMatch[1], token });
-        } else if (spPlaylistMatch && spPlaylistMatch[1]) {
-            socket.emit('addPlaylist', { roomId: currentRoomId, playlistId: spPlaylistMatch[1], token });
-        } else if (ytMatch && ytMatch[1]) {
-            socket.emit('addYouTubeTrack', { roomId: currentRoomId, videoId: ytMatch[1] });
-        } else {
-            alert("Invalid Link. Please paste a valid Spotify track/playlist or YouTube video link.");
-        }
-        linkInput.value = '';
-    });
-
-    // --- SMART PLAYBACK CONTROLS ---
-    playPauseBtn.addEventListener('click', () => {
-        if (currentTrackSource === 'spotify' && spotifyPlayer) {
-            spotifyPlayer.togglePlay();
-        } else if (currentTrackSource === 'youtube' && youtubePlayer) {
-            const playerState = youtubePlayer.getPlayerState();
-            if (playerState === YT.PlayerState.PLAYING) {
-                youtubePlayer.pauseVideo();
-            } else {
-                youtubePlayer.playVideo();
-            }
-        }
-    });
-
-    prevBtn.addEventListener('click', () => { 
-        if (isHost) socket.emit('seekTrack', { roomId: currentRoomId, position_ms: 0 }); 
-    });
-    
-    nextBtn.addEventListener('click', () => { 
-        if (isHost) socket.emit('skipTrack', { roomId: currentRoomId }); 
-    });
-
-    volumeSlider.addEventListener('input', (e) => {
-        const volume = e.target.value;
-        if (spotifyPlayer) {
-            spotifyPlayer.setVolume(volume / 100);
-        }
-        if (youtubePlayer && youtubePlayer.setVolume) {
-            youtubePlayer.setVolume(volume);
-        }
-    });
-
-    document.getElementById('progress-bar-container').addEventListener('click', (e) => {
-        if (!isHost || currentTrackDuration === 0) return;
-        const progressBarContainer = e.currentTarget;
-        const clickPositionX = e.offsetX;
-        const containerWidth = progressBarContainer.clientWidth;
-        const seekProgress = clickPositionX / containerWidth;
-        const seekPosition_ms = Math.floor(seekProgress * currentTrackDuration);
-        socket.emit('seekTrack', { roomId: currentRoomId, position_ms: seekPosition_ms });
-    });
-    
-    // --- SOCKET.IO HANDLERS ---
-    socket.on('roomState', (data) => {
-        roomNameDisplay.textContent = data.name;
-        updateQueueUI(data.queue);
-        updateNowPlayingUI(data.nowPlaying);
-        if (currentUser && data.host === currentUser.id) {
-            isHost = true;
-            hostControlsWrapper.classList.remove('is-guest');
-        } else {
-            isHost = false;
-            hostControlsWrapper.classList.add('is-guest');
-        }
-    });
-
-    socket.on('newChatMessage', (message) => {
-        message.system ? renderSystemMessage(message.text) : renderChatMessage(message);
-    });
-
-    socket.on('updateRoomsList', (rooms) => {
-        const currentRoomData = rooms.find(r => r.id === currentRoomId);
-        if (currentRoomData) {
-            listenerCountDisplay.textContent = currentRoomData.listenerCount;
-        }
-    });
-
-    socket.on('queueUpdated', updateQueueUI);
-    
-    socket.on('newSongPlaying', (nowPlaying) => {
-        updateNowPlayingUI(nowPlaying);
-    
-        if (!nowPlaying || !nowPlaying.track) {
-            if (spotifyPlayer) spotifyPlayer.pause();
-            if (youtubePlayer && youtubePlayer.pauseVideo) youtubePlayer.pauseVideo();
-            return;
-        }
-    
-        const { track, startTime } = nowPlaying;
-        const latency = Date.now() - startTime;
-    
-        if (track.source === 'spotify') {
-            if (youtubePlayer && youtubePlayer.pauseVideo) youtubePlayer.pauseVideo();
-            if (spotifyPlayer) {
-                spotifyPlayer._options.getOAuthToken(access_token => {
-                    fetch(`https://api.spotify.com/v1/me/player/play?device_id=${spotifyPlayer._options.id}`, {
-                        method: 'PUT',
-                        body: JSON.stringify({ uris: [track.uri], position_ms: latency }),
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${access_token}` },
-                    });
-                });
-            }
-        } else if (track.source === 'youtube') {
-            if (spotifyPlayer) spotifyPlayer.pause();
-            if (youtubePlayer && youtubePlayer.loadVideoById) {
-                // FIX #2: Forcefully unmute and set volume right before loading the new track.
-                youtubePlayer.unMute();
-                youtubePlayer.setVolume(volumeSlider.value);
-
-                youtubePlayer.loadVideoById({
-                    videoId: track.id,
-                    startSeconds: Math.floor(latency / 1000)
-                });
-            }
-        }
-    });
-
-    socket.on('kicked', ({ roomName }) => {
-        alert(`You have been kicked from the room "${roomName}" by the host.`);
-        window.location.href = '/';
-    });
 });

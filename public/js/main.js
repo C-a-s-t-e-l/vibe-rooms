@@ -1,76 +1,100 @@
-// public/js/main.js (Corrected Version - Redundant Player Initialization Removed)
+// public/js/main.js (Final, Bulletproof Version)
 
-// This API object is still needed to get the user's profile.
 const spotifyApi = new SpotifyWebApi();
 
-// --- REMOVED ---
-// We no longer need a global spotifyPlayer variable in the lobby.
-// We no longer need an initializePlayer function here.
-// We no longer need the window.onSpotifyWebPlaybackSDKReady function here.
-// This prevents the conflict with the real player in room.js.
+// This empty function is required by the Spotify SDK on any page it's loaded.
+window.onSpotifyWebPlaybackSDKReady = () => {
+    console.log("Spotify SDK is ready on the lobby page (no player needed).");
+};
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('Lobby script loaded.');
     const socket = io();
-    let currentUser;
-
+    
+    // --- DOM Elements ---
     const navActions = document.querySelector('.nav-actions');
     const heroSection = document.querySelector('.hero');
     const roomsSection = document.querySelector('.rooms-section');
     const roomsGrid = document.querySelector('.rooms-grid');
     const createRoomBtn = document.getElementById('create-room-btn');
 
-
+    // --- Core Authentication Logic ---
     const urlToken = new URLSearchParams(window.location.hash.substring(1)).get('access_token');
     const storedToken = localStorage.getItem('spotifyAccessToken');
-    const tokenToUse = urlToken || storedToken;
 
     if (urlToken) {
         localStorage.setItem('spotifyAccessToken', urlToken);
+        // Clean the URL and reload to ensure a clean state
         window.history.pushState({}, document.title, "/");
+        validateTokenAndSetupUI(urlToken);
+    } else if (storedToken) {
+        validateTokenAndSetupUI(storedToken);
     }
 
-    if (tokenToUse) {
-        spotifyApi.setAccessToken(tokenToUse);
-        setupLoggedInUI(); // We don't need to pass the token here anymore
-    }
-
-    if (createRoomBtn) {
-        createRoomBtn.addEventListener('click', () => {
-            if (!currentUser) {
-                alert("Could not get your Spotify profile. Please wait a moment or try logging in again.");
-                return;
+    /**
+     * The most robust way to check if a token is valid.
+     * Bypasses library state issues by calling the Spotify API directly.
+     */
+    function validateTokenAndSetupUI(token) {
+        fetch('https://api.spotify.com/v1/me', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        })
+        .then(res => {
+            if (!res.ok) {
+                // If the response is not 200 OK, the token is invalid.
+                throw new Error('Invalid token');
             }
-
-            const roomName = prompt("Enter a name for your new Vibe Room:");
-            
-            if (roomName && roomName.trim() !== "") {
-                console.log(`Attempting to create room: '${roomName.trim()}'`);
-                socket.emit('createRoom', { roomName: roomName.trim(), spotifyUser: currentUser });
-            }
+            return res.json();
+        })
+        .then(user => {
+            // SUCCESS: The token is valid and we have the user data.
+            // Now it's safe to set the token for the library for any future use.
+            spotifyApi.setAccessToken(token);
+            showLobbyView(user);
+        })
+        .catch(() => {
+            // FAILURE: The token is bad. Log the user out.
+            logout();
         });
     }
 
-    function setupLoggedInUI() {
+    /**
+     * Renders the logged-in view with rooms, welcome message, etc.
+     */
+    function showLobbyView(user) {
         heroSection.style.display = 'none';
         roomsSection.style.display = 'block';
-        navActions.innerHTML = `<p class="nav-link" id="welcome-message">Welcome!</p>`;
-        const welcomeMessage = document.getElementById('welcome-message');
 
-        spotifyApi.getMe().then(user => {
-            currentUser = user;
-            welcomeMessage.textContent = `Welcome, ${currentUser.display_name}`;
-        }).catch(() => {
-            localStorage.removeItem('spotifyAccessToken');
-            window.location.href = '/';
+        navActions.innerHTML = `
+            <p class="nav-link" id="welcome-message">Welcome, ${user.display_name}!</p>
+            <button id="logout-btn" class="btn btn-secondary">Log Out</button>
+        `;
+
+        document.getElementById('logout-btn').addEventListener('click', logout);
+
+        createRoomBtn.addEventListener('click', () => {
+            const roomName = prompt("Enter a name for your new Vibe Room:");
+            if (roomName && roomName.trim() !== "") {
+                socket.emit('createRoom', { roomName: roomName.trim(), spotifyUser: user });
+            }
         });
 
-        // The player initialization logic has been completely removed from here.
+        // Fetch the initial list of rooms
         socket.emit('getRooms');
     }
 
+    /**
+     * Clears user session data and returns to the login page.
+     */
+    function logout() {
+        localStorage.removeItem('spotifyAccessToken');
+        window.location.href = '/';
+    }
+
+
+    // --- Socket.IO Event Handlers ---
     socket.on('updateRoomsList', (rooms) => {
-        if (!roomsGrid) return; // Defensive check
+        if (!roomsGrid) return;
         
         roomsGrid.innerHTML = '';
         if (rooms.length === 0) {
@@ -82,13 +106,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const roomCard = document.createElement('div');
             roomCard.className = 'room-card';
             roomCard.dataset.roomId = room.id;
-
             const albumArtUrl = room.nowPlaying ? room.nowPlaying.track.albumArt : '/assets/placeholder.svg';
-
             if (room.nowPlaying) {
                 roomCard.style.backgroundImage = `url(${albumArtUrl})`;
             }
-
             roomCard.innerHTML = `
                 <img src="${albumArtUrl}" alt="${room.name}" class="album-art"/>
                 <div class="room-card-info">
@@ -105,11 +126,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 </div>
             `;
-
             roomCard.addEventListener('click', () => {
                 window.location.href = `/room/${room.id}`;
             });
-
             roomsGrid.appendChild(roomCard);
         });
     });
