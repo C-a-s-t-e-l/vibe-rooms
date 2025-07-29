@@ -160,11 +160,7 @@ body {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: hsl(var(--accent));
-  color: white;
-  display: grid;
-  place-content: center;
-  font-weight: 600;
+  object-fit: cover;
   flex-shrink: 0;
 }
 .chat-message__content {
@@ -415,15 +411,18 @@ body {
   color: hsl(var(--muted-foreground));
 }
 
-.chat-messages::-webkit-scrollbar, .queue-list::-webkit-scrollbar,
+.chat-messages::-webkit-scrollbar,
+.queue-list::-webkit-scrollbar,
 .search-results::-webkit-scrollbar {
   width: 8px;
 }
-.chat-messages::-webkit-scrollbar, .queue-list::-webkit-scrollbar-track,
+.chat-messages::-webkit-scrollbar-track,
+.queue-list::-webkit-scrollbar-track,
 .search-results::-webkit-scrollbar-track {
   background: transparent;
 }
-.chat-messages::-webkit-scrollbar, .queue-list::-webkit-scrollbar-thumb,
+.chat-messages::-webkit-scrollbar-thumb,
+.queue-list::-webkit-scrollbar-thumb,
 .search-results::-webkit-scrollbar-thumb {
   background-color: hsl(var(--muted));
   border-radius: 10px;
@@ -433,104 +432,54 @@ body {
 .add-vibe-section {
   flex-shrink: 0;
 }
-.search-container {
-  position: relative;
-}
+
+/* *** CSS FIX: YOUR UI SUGGESTION FOR FORM LAYOUT *** */
 .search-form {
-  position: relative;
-}
-.search-icon {
-  position: absolute;
-  left: 1rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: hsl(var(--muted-foreground));
-  width: 1.25rem;
-  height: 1.25rem;
-}
-#search-input {
-  width: 100%;
-  background: hsl(var(--muted));
-  border: 1px solid hsl(var(--border));
-  border-radius: 999px;
-  padding: 0.75rem 1rem 0.75rem 3rem;
-  color: hsl(var(--foreground));
-  font-size: 1rem;
-}
-.search-results {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  z-index: 10;
-  max-height: 300px;
-  overflow-y: auto;
-  background: hsl(var(--panel-bg));
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius-md);
-  margin-top: 0.5rem;
-  padding: 0.5rem;
-  box-shadow: 0 10px 30px hsl(0 0% 0% / 0.2);
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(-10px);
-  transition: all 0.2s ease-in-out;
-}
-.search-results.is-visible {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
+  display: flex;
+  flex-direction: column; /* Stack input and button vertically */
+  gap: 0.75rem; /* Add space between them */
 }
 
-.link-add-section {
-  margin-top: 1.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid hsl(var(--border));
-}
-#link-form {
-  display: flex;
-  gap: 0.75rem;
-}
-#link-input {
+.link-input-field {
   width: 100%;
   background: hsl(var(--muted));
   border: 1px solid hsl(var(--border));
-  border-radius: 999px;
+  border-radius: var(--radius-md); /* Slightly more rounded */
   padding: 0.75rem 1rem;
   color: hsl(var(--foreground));
   font-size: 1rem;
-  flex-grow: 1;
 }
-.btn-add-playlist {
-  background: hsl(var(--muted));
+
+/* *** CSS FIX: STYLING THE NEW BUTTON *** */
+.form-action-btn {
+  background: hsl(var(--primary) / 0.8);
   border: none;
   color: hsl(var(--foreground));
   font-weight: 600;
-  border-radius: 999px;
-  padding: 0.5rem 1.25rem;
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1.25rem;
   cursor: pointer;
-  transition: background-color 0.2s;
-  flex-shrink: 0;
-}
-.btn-add-playlist:hover {
-  background-color: hsl(var(--primary));
+  transition: all 0.2s;
+  width: 100%; /* Make button full-width as requested */
 }
 
-.chat-message__username.kickable {
-  cursor: pointer;
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-decoration-color: hsl(var(--destructive));
-  transition: color 0.2s;
-}
-.chat-message__username.kickable:hover {
-  color: hsl(var(--destructive));
+.form-action-btn:hover {
+  background: hsl(var(--primary));
+  box-shadow: 0 0 15px hsl(var(--primary) / 0.5);
 }
 
-.chat-message__avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  object-fit: cover; /* This makes sure the image fits nicely */
-  flex-shrink: 0;
+.queue-item.is-played {
+  opacity: 0.5;
+}
+.queue-item.is-playing {
+  background-color: hsl(var(--primary) / 0.2);
+  border-left: 3px solid hsl(var(--primary));
+  padding-left: calc(1rem - 3px);
+}
+.queue-item.is-upcoming {
+  opacity: 1;
+}
+.queue-item.is-host-clickable:hover {
+  cursor: pointer;
+  background-color: hsl(var(--primary) / 0.3);
 }
