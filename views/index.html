@@ -3,72 +3,54 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/x-icon" href="https://img.freepik.com/premium-vector/glowing-neon-music-note-icon-colorful-music-sign-glowing-neon-vector-illustration_561158-2743.jpg">
-
-    <title>Vibe Rooms - Filipino Music Discovery</title>
-    <meta name="description" content="Discover and share music in cozy Filipino vibes. Connect through sound, connect through culture." />
-    <meta name="author" content="Lovable" />
-    <meta property="og:title" content="Vibe Rooms" />
-    <meta property="og:description" content="Discover and share music in cozy Filipino vibes. Connect through sound, connect through culture." />
-    <meta property="og:type" content="website" />
+    <title>Vibe Rooms</title>
     <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
     <div id="app-wrapper">
         <nav class="main-nav">
             <div class="logo-container">
-                <div class="logo-box">
-                    <span class="logo-text">VR</span>
-                </div>
+                <div class="logo-box"><span>VR</span></div>
                 <span class="logo-title">Vibe Rooms</span>
             </div>
-            
             <div class="nav-actions">
-                <a href="/login" class="btn btn-secondary" id="signin-btn">Sign In with Spotify</a>
+                <!-- This will be dynamically filled by main.js -->
             </div>
         </nav>
 
         <main class="container">
-            <!-- Hero Section (for logged-out users) -->
-            <section class="hero">
-                <div class="hero-content">
-                    <h1 class="hero-title glow-text">Vibe Rooms</h1>
-                    <p class="hero-subtitle">
-                        Discover and share music in cozy Filipino vibes. 
-                        <br />
-                        <span class="text-primary">Connect through sound, connect through culture.</span>
-                    </p>
-                </div>
-            </section>
+            <div id="logged-out-view">
+                <section class="hero">
+                    <div class="hero-content">
+                        <h1 class="hero-title glow-text">Vibe Rooms</h1>
+                        <p class="hero-subtitle">
+                            Discover and share music in cozy Filipino vibes. 
+                            <br />
+                            <span class="text-primary">Connect through sound, connect through culture.</span>
+                        </p>
+                         <a href="/auth/google" class="btn btn-primary" style="margin-top: 2rem;">
+                            <svg style="width:20px; height:20px; margin-right: 0.5rem; vertical-align: middle;" viewBox="0 0 24 24"><path fill="white" d="M21.35,11.1H12.18V13.83H18.69C18.36,17.64 15.19,19.27 12.19,19.27C8.36,19.27 5,16.25 5,12C5,7.9 8.2,4.73 12.19,4.73C14.76,4.73 16.04,5.85 16.96,6.72L19.33,4.35C17.22,2.44 14.86,1.5 12.19,1.5C7.03,1.5 3,5.55 3,12C3,18.6 6.9,22.5 12.19,22.5C17.6,22.5 21.5,18.33 21.5,12.33C21.5,11.76 21.45,11.43 21.35,11.1Z" /></svg>
+                            Sign In with Google
+                        </a>
+                    </div>
+                </section>
+            </div>
             
-            <!-- Rooms Section (for logged-in users) -->
-            <section class="rooms-section">
-                <div class="section-header">
-                    <h2 class="section-title">
-                        Popular <span class="glow-text">Vibes</span>
-                    </h2>
-                    <p class="section-subtitle">
-                        Join thousands of Filipinos sharing their favorite tunes
-                    </p>
-                    <button class="btn btn-primary" id="create-room-btn">Create a New Vibe</button>
-                </div>
-                
-                <div class="rooms-grid">
-                    <!-- Room cards will be inserted here by main.js -->
-                </div>
-            </section>
-
-            <!-- Footer -->
-            <footer class="main-footer">
-                <p>Made with ❤️ for the Filipino music community</p>
-            </footer>
+            <div id="logged-in-view" style="display: none;">
+                <section class="rooms-section" style="display: block;">
+                    <div class="section-header">
+                        <h2 class="section-title">Join a <span class="glow-text">Vibe</span></h2>
+                        <p class="section-subtitle">Find a room or create your own to start a listening party.</p>
+                        <button class="btn btn-primary" id="create-room-btn">Create a New Vibe</button>
+                    </div>
+                    <div class="rooms-grid"></div>
+                    <p id="no-rooms-message" style="display: none; text-align: center;">No active vibes...</p>
+                </section>
+            </div>
         </main>
     </div>
 
-    <!-- Scripts -->
     <script src="/socket.io/socket.io.js"></script>
-    <script src="https://sdk.scdn.co/spotify-player.js"></script>
-    <script src="https://unpkg.com/spotify-web-api-js/src/spotify-web-api.js"></script>
     <script src="/js/main.js"></script>
 </body>
 </html>

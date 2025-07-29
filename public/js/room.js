@@ -1,14 +1,7 @@
-// public/js/room.js (Final Version with Synchronized Playback)
+// public/js/room.js (Definitive Final Version with Sync Pulse Correction)
 
 document.addEventListener("DOMContentLoaded", () => {
   // --- UTILITY FUNCTIONS ---
-  const getInitials = (name) => {
-    if (!name) return "??";
-    const parts = name.split(" ");
-    return parts.length > 1
-      ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-      : name.substring(0, 2).toUpperCase();
-  };
   const formatTime = (ms) => {
     if (!ms || isNaN(ms)) return "0:00";
     const totalSeconds = Math.floor(ms / 1000);
@@ -19,218 +12,95 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- STATE & INITIALIZATION ---
   const socket = io();
-  let currentUser;
-  let currentRoomId = window.location.pathname.split("/").pop();
+  const currentRoomId = window.location.pathname.split("/").pop();
   let nowPlayingInterval;
   let isHost = false,
-    isPremium = false,
-    audioContextUnlocked = false;
-  let spotifyPlayer,
-    spotifyDeviceId = null,
-    currentTrackSource = null;
-    let currentSongDuration = 0;
+    audioContextUnlocked = false,
+    currentSongDuration = 0;
+  let playAfterUnlock = false;
 
   // --- DOM ELEMENTS ---
-  const roomBackground = document.getElementById("room-background");
-  const roomNameDisplay = document.getElementById("room-name-display");
-  const listenerCountDisplay = document.getElementById(
-    "listener-count-display"
-  );
-  const hostControlsWrapper = document.getElementById("host-controls-wrapper");
-  const chatMessages = document.getElementById("chat-messages");
-  const chatForm = document.getElementById("chat-form");
-  const chatInput = document.getElementById("chat-input");
-  const nowPlayingCard = document.querySelector(".now-playing-card");
-  const nowPlayingArt = document.getElementById("now-playing-art");
-  const nowPlayingName = document.getElementById("now-playing-name");
-  const nowPlayingArtist = document.getElementById("now-playing-artist");
-  const currentTimeDisplay = document.getElementById("current-time");
-  const totalTimeDisplay = document.getElementById("total-time");
-  const progressBar = document.getElementById("progress-bar");
+  const audioUnlockOverlay = document.getElementById("audio-unlock-overlay");
   const playPauseBtn = document.getElementById("play-pause-btn");
-  const nextBtn = document.getElementById("next-btn");
-  const volumeSlider = document.getElementById("volume-slider");
-  const playbackControls = document.querySelector(".playback-controls");
-  const searchForm = document.getElementById("search-form");
-  const searchInput = document.getElementById("search-input");
-  const searchResults = document.getElementById("search-results");
-  const linkForm = document.getElementById("link-form");
-  const linkInput = document.getElementById("link-input");
-  const queueList = document.getElementById("queue-list");
   const nativeAudioPlayer = document.getElementById("native-audio-player");
-
-  // --- AUDIO PERMISSION HANDLER ---
-  const grantAudioPermission = () => {
-    if (audioContextUnlocked) return;
-    console.log(
-      "User interaction detected. Audio permission granted for this session."
-    );
-    audioContextUnlocked = true;
-    document.removeEventListener("click", grantAudioPermission);
-    document.removeEventListener("keydown", grantAudioPermission);
-  };
-
   const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7Z"/></svg>`;
   const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
 
-  // --- INITIALIZATION ---
-  const token = localStorage.getItem("spotifyAccessToken");
-  if (!token) {
-    window.location.href = "/";
-    return;
+  // --- AUDIO UNLOCK LOGIC ---
+  function unlockAudio() {
+    if (audioContextUnlocked) return;
+    audioContextUnlocked = true;
+    audioUnlockOverlay.style.display = "none";
+    console.log("Audio unlocked by user interaction.");
+    if (playAfterUnlock) {
+      nativeAudioPlayer
+        .play()
+        .catch((e) => console.error("Autoplay after unlock failed:", e));
+      playAfterUnlock = false;
+    }
   }
-  const spotifyApi = new SpotifyWebApi();
-  spotifyApi.setAccessToken(token);
+  audioUnlockOverlay.addEventListener("click", unlockAudio);
 
-  window.onSpotifyWebPlaybackSDKReady = () => {
-    spotifyPlayer = new Spotify.Player({
-      name: "Vibe Rooms Player",
-      getOAuthToken: (cb) => {
-        cb(token);
-      },
-    });
+  setupSocketListeners();
+  setupUIEventListeners();
+  socket.emit("joinRoom", currentRoomId);
 
-    spotifyPlayer.addListener("authentication_error", ({ message }) => {
-      console.error("Spotify Authentication Error:", message);
-      alert("Your Spotify session has expired. Please log in again.");
-      localStorage.removeItem("spotifyAccessToken");
-      window.location.href = "/";
-    });
-
-    spotifyPlayer.addListener("ready", ({ device_id }) => {
-      isPremium = true;
-      spotifyDeviceId = device_id;
-      initializeRoom();
-    });
-    spotifyPlayer.addListener("account_error", () => {
-      isPremium = false;
-      initializeRoom();
-    });
-
-    spotifyPlayer.addListener("player_state_changed", (state) => {
-      if (!state || !isPremium) return;
-      // Update the icon for all spotify users
-      playPauseBtn.innerHTML = state.paused ? playIcon : pauseIcon;
-      if (isHost) {
-        // If the state changes (e.g., from the Spotify app itself), the host syncs it with the room
-        socket.emit("hostPlaybackChange", {
-          roomId: currentRoomId,
-          isPlaying: !state.paused,
-        });
-      }
-    });
-    spotifyPlayer.connect();
-  };
-
-  function initializeRoom() {
-    document.addEventListener("click", grantAudioPermission);
-    document.addEventListener("keydown", grantAudioPermission);
-    spotifyApi
-      .getMe()
-      .then((user) => {
-        currentUser = user;
-        setupSocketListeners();
-        setupUIEventListeners();
-        socket.emit("joinRoom", {
-          roomId: currentRoomId,
-          spotifyUser: currentUser,
-        });
-      })
-      .catch((err) => {
-        console.error(
-          "Failed to get Spotify user info, token is likely expired.",
-          err
-        );
-        alert("Your Spotify session has expired. Please log in again.");
-        localStorage.removeItem("spotifyAccessToken");
-        window.location.href = "/";
-      });
-  }
-
+  // --- SOCKET LISTENERS ---
   function setupSocketListeners() {
     socket.on("roomState", (data) => {
-      if (!data) return;
-      isHost = currentUser && data.host === currentUser.id;
-      hostControlsWrapper.classList.toggle("is-guest", !isHost);
-      roomNameDisplay.textContent = data.name;
-      updateQueueUI(data.queue);
-      updateNowPlayingUI(data.nowPlaying, data.isPlaying);
-      if (data.nowPlaying) {
-        startProgressTimer(
-          data.nowPlaying.startTime,
-          data.nowPlaying.track.duration_ms
-        );
-      }
-    });
-
-    socket.on("newSongPlaying", (nowPlaying) => {
-      clearInterval(nowPlayingInterval);
-      updateNowPlayingUI(nowPlaying, true); // Assume new song starts playing
-
-      currentTrackSource = nowPlaying?.track?.source;
-
-      if (!nowPlaying) {
-        nativeAudioPlayer.src = "";
-        if (isPremium) spotifyPlayer.pause();
+      if (!data) {
+        alert("This Vibe Room doesn't exist or has ended.");
+        window.location.href = "/";
         return;
       }
-
-      if (currentTrackSource === "spotify") {
-        if (isPremium && spotifyPlayer && spotifyDeviceId && isHost) {
-          const { track, startTime } = nowPlaying;
-          fetch(
-            `https://api.spotify.com/v1/me/player/play?device_id=${spotifyDeviceId}`,
-            {
-              method: "PUT",
-              body: JSON.stringify({
-                uris: [track.uri],
-                position_ms: Math.max(0, Date.now() - startTime),
-              }),
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-            }
-          );
-        }
-      } else if (currentTrackSource === 'youtube') {
-                if (isPremium) spotifyPlayer.pause();
-                playbackControls.style.opacity = '1';
-                playbackControls.style.pointerEvents = 'auto';
-                const { track, startTime } = nowPlaying;
-                
-                currentSongDuration = track.duration_ms; // <-- ADD THIS LINE
-
-                nativeAudioPlayer.addEventListener('canplay', () => {
-                    nativeAudioPlayer.currentTime = Math.max(0, (Date.now() - startTime) / 1000);
-                    // The 'onplay' event will now handle starting the timer
-                    if (audioContextUnlocked) {
-                        nativeAudioPlayer.play().catch(e => console.error("Autoplay was prevented:", e));
-                    }
-                }, { once: true });
-                nativeAudioPlayer.src = track.url;
-            }
+      isHost = data.isHost;
+      document
+        .getElementById("host-controls-wrapper")
+        .classList.toggle("is-guest", !isHost);
+      document.getElementById("room-name-display").textContent = data.name;
+      updateQueueUI(data.queue);
+      syncPlayerState(data.nowPlaying);
     });
 
-    // --- NEW: Receive sync commands from the server ---
-    socket.on('syncPlaybackState', (data) => {
-    if (isHost) return;
+    socket.on("newSongPlaying", (nowPlayingData) => {
+      syncPlayerState(nowPlayingData);
+    });
 
-    if (currentTrackSource === 'youtube') {
-        // NEW: Set the player's time to the authoritative position from the server.
-        if (data.position !== undefined) {
-            nativeAudioPlayer.currentTime = data.position / 1000;
-        }
+    // In public/js/room.js
 
-        // Now, play or pause as commanded.
-        if (data.isPlaying) {
-            nativeAudioPlayer.play();
-        } else {
-            nativeAudioPlayer.pause();
+socket.on('syncPulse', (data) => {
+    if (isHost || !data || !data.track) return;
+
+    updatePlayPauseIcon(data.isPlaying);
+
+    if (data.isPlaying) {
+        // THE FIX: Calculate latency and apply it here too.
+        const latency = Date.now() - data.serverTimestamp;
+        const serverPosition = data.position + latency;
+        const clientPosition = nativeAudioPlayer.currentTime * 1000;
+        const drift = Math.abs(serverPosition - clientPosition);
+
+        // We can now use a much tighter threshold because our calculation is more accurate.
+        if (drift > 250) { 
+            console.log(`Syncing! Drift was ${Math.round(drift)}ms. Correcting.`);
+            nativeAudioPlayer.currentTime = serverPosition / 1000;
         }
+        
+        if (nativeAudioPlayer.paused) nativeAudioPlayer.play();
+    } else {
+        if (!nativeAudioPlayer.paused) nativeAudioPlayer.pause();
+        // For paused state, we trust the server's last known position directly.
+        nativeAudioPlayer.currentTime = data.position / 1000;
     }
 });
 
+    socket.on("hostAssigned", () => {
+      isHost = true;
+      document
+        .getElementById("host-controls-wrapper")
+        .classList.remove("is-guest");
+      renderSystemMessage("👑 You are now the host of this room!");
+    });
     socket.on("queueUpdated", updateQueueUI);
     socket.on("newChatMessage", (message) =>
       message.system
@@ -239,118 +109,125 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   }
 
+  // --- UI EVENT LISTENERS ---
   function setupUIEventListeners() {
-    // --- NEW: This button now sends commands to the server ---
-   playPauseBtn.addEventListener('click', () => {
-    if (!isHost) return;
-    grantAudioPermission();
-
-    if (currentTrackSource === 'youtube') {
-        const shouldBePlaying = nativeAudioPlayer.paused;
-        if (shouldBePlaying) nativeAudioPlayer.play();
-        else nativeAudioPlayer.pause();
-        
-        // NEW: Send the exact current time along with the command.
-        socket.emit('hostPlaybackChange', {
-            roomId: currentRoomId,
-            isPlaying: shouldBePlaying,
-            position: nativeAudioPlayer.currentTime * 1000 // Send position in ms
-        });
-    } else if (currentTrackSource === 'spotify' && isPremium) {
-        // This part remains the same, as Spotify syncs itself.
-        spotifyPlayer.togglePlay();
-    }
-});
-
-    nativeAudioPlayer.onplay = () => {
-    playPauseBtn.innerHTML = pauseIcon;
-    // When audio plays, start the progress bar from its current time.
-    const newStartTime = Date.now() - (nativeAudioPlayer.currentTime * 1000);
-    startProgressTimer(newStartTime, currentSongDuration);
-};
-nativeAudioPlayer.onpause = () => {
-    playPauseBtn.innerHTML = playIcon;
-    // When audio pauses, stop the progress bar.
-    clearInterval(nowPlayingInterval);
-};
-nativeAudioPlayer.onended = () => {
-    playPauseBtn.innerHTML = playIcon;
-    clearInterval(nowPlayingInterval);
-};
-
-    // --- Rest of UI listeners are mostly unchanged ---
-    volumeSlider.addEventListener("input", (e) => {
-      grantAudioPermission();
-      const volume = e.target.value;
-      if (isPremium) spotifyPlayer.setVolume(volume / 100);
-      nativeAudioPlayer.volume = volume / 100;
+    playPauseBtn.addEventListener("click", () => {
+      if (!isHost || !nativeAudioPlayer.src) return;
+      const isCurrentlyPlaying = !nativeAudioPlayer.paused;
+      socket.emit("hostPlaybackChange", {
+        roomId: currentRoomId,
+        isPlaying: !isCurrentlyPlaying,
+      });
+      if (isCurrentlyPlaying) nativeAudioPlayer.pause();
+      else nativeAudioPlayer.play();
     });
-    linkForm.addEventListener("submit", (e) => {
+    document
+      .getElementById("next-btn")
+      .addEventListener(
+        "click",
+        () => isHost && socket.emit("skipTrack", { roomId: currentRoomId })
+      );
+    document.getElementById("volume-slider").addEventListener("input", (e) => {
+      nativeAudioPlayer.volume = e.target.value / 100;
+    });
+    document
+      .getElementById("progress-bar-container")
+      .addEventListener("click", (e) => {
+        if (!isHost || !nativeAudioPlayer.src) return;
+        const barWidth = document.getElementById(
+          "progress-bar-container"
+        ).clientWidth;
+        const clickPosition = e.offsetX;
+        const seekRatio = clickPosition / barWidth;
+        const seekTimeMs = currentSongDuration * seekRatio;
+        nativeAudioPlayer.currentTime = seekTimeMs / 1000;
+        socket.emit("hostPlaybackChange", {
+          roomId: currentRoomId,
+          isPlaying: !nativeAudioPlayer.paused,
+          position: seekTimeMs,
+        });
+      });
+    document.getElementById("link-form").addEventListener("submit", (e) => {
       e.preventDefault();
-      const url = linkInput.value.trim();
+      const url = document.getElementById("link-input").value.trim();
       if (!url) return;
-      const spTrackRegex = /open\.spotify\.com\/track\/([a-zA-Z0-9]+)/;
-      const spPlaylistRegex = /open\.spotify\.com\/playlist\/([a-zA-Z0-9]+)/;
       const ytRegex =
         /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=|embed\/|v\/|)([\w-]{11})/;
-      const spTrackMatch = url.match(spTrackRegex);
-      const spPlaylistMatch = url.match(spPlaylistRegex);
       const ytMatch = url.match(ytRegex);
-      if (spTrackMatch)
-        socket.emit("addSong", {
-          roomId: currentRoomId,
-          trackId: spTrackMatch[1],
-          token,
-        });
-      else if (spPlaylistMatch)
-        socket.emit("addPlaylist", {
-          roomId: currentRoomId,
-          playlistId: spPlaylistMatch[1],
-          token,
-        });
-      else if (ytMatch && ytMatch[1])
+      if (ytMatch && ytMatch[1]) {
         socket.emit("addYouTubeTrack", {
           roomId: currentRoomId,
           videoId: ytMatch[1],
         });
-      else alert("Invalid Link. Please paste a valid Spotify or YouTube link.");
-      linkInput.value = "";
-    });
-    chatForm.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const text = chatInput.value.trim();
-      if (text && currentUser) {
-        socket.emit("sendMessage", {
-          roomId: currentRoomId,
-          text,
-          user: currentUser.display_name,
-          userId: currentUser.id,
-        });
-        chatInput.value = "";
-      }
-    });
-    nextBtn.addEventListener(
-      "click",
-      () => isHost && socket.emit("skipTrack", { roomId: currentRoomId })
-    );
-    searchForm.addEventListener("submit", (e) => e.preventDefault());
-    searchInput.addEventListener("input", () => {
-      const query = searchInput.value;
-      if (query.trim()) {
-        spotifyApi
-          .searchTracks(query, { limit: 5 })
-          .then((data) => displaySearchResults(data.tracks.items));
-        searchResults.classList.add("is-visible");
+        document.getElementById("link-input").value = "";
       } else {
-        searchResults.classList.remove("is-visible");
+        alert("Invalid Link. Please paste a valid YouTube link.");
       }
     });
-    document.addEventListener("click", (e) => {
-      if (!document.querySelector(".search-container").contains(e.target)) {
-        searchResults.classList.remove("is-visible");
+    document.getElementById("chat-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const text = document.getElementById("chat-input").value.trim();
+      if (text) {
+        socket.emit("sendMessage", { roomId: currentRoomId, text });
+        document.getElementById("chat-input").value = "";
       }
     });
   }
+
+  // --- PLAYER EVENT HANDLERS ---
+  nativeAudioPlayer.onplay = () => {
+    updatePlayPauseIcon(true);
+    const newStartTime = Date.now() - nativeAudioPlayer.currentTime * 1000;
+    startProgressTimer(newStartTime, currentSongDuration);
+  };
+  nativeAudioPlayer.onpause = () => {
+    updatePlayPauseIcon(false);
+    clearInterval(nowPlayingInterval);
+  };
+  nativeAudioPlayer.onended = () => {
+    updatePlayPauseIcon(false);
+    clearInterval(nowPlayingInterval);
+    if (isHost) socket.emit("skipTrack", { roomId: currentRoomId });
+  };
+
+  // --- CORE LOGIC ---
+  function syncPlayerState(nowPlaying) {
+    clearInterval(nowPlayingInterval);
+    playAfterUnlock = false;
+    
+    if (!nowPlaying || !nowPlaying.track) {
+        updateNowPlayingUI(null, false);
+        nativeAudioPlayer.src = "";
+        return;
+    }
+
+    const { track, isPlaying, position, serverTimestamp } = nowPlaying;
+    updateNowPlayingUI(nowPlaying, isPlaying);
+
+    if (nativeAudioPlayer.src !== track.url) {
+        nativeAudioPlayer.src = track.url;
+    }
+    
+    // Wait for the track to be ready to play
+    nativeAudioPlayer.onloadedmetadata = () => {
+        // THE FIX: Calculate latency and apply it.
+        const latency = Date.now() - serverTimestamp;
+        const correctedPosition = position + latency;
+        
+        // Ensure we don't seek past the end of the song.
+        const targetPositionMs = Math.min(correctedPosition, track.duration_ms);
+        nativeAudioPlayer.currentTime = targetPositionMs / 1000;
+        
+        if (isPlaying) {
+            if (audioContextUnlocked) {
+                nativeAudioPlayer.play().catch(e => console.error("Autoplay prevented:", e));
+            } else {
+                playAfterUnlock = true;
+                audioUnlockOverlay.style.display = 'grid';
+            }
+        }
+    };
+}
 
   function startProgressTimer(startTime, duration_ms) {
     clearInterval(nowPlayingInterval);
@@ -358,131 +235,104 @@ nativeAudioPlayer.onended = () => {
       const elapsedTime = Date.now() - startTime;
       if (elapsedTime >= duration_ms) {
         clearInterval(nowPlayingInterval);
-        progressBar.style.width = "100%";
+        document.getElementById("progress-bar").style.width = "100%";
         return;
       }
-      progressBar.style.width = `${(elapsedTime / duration_ms) * 100}%`;
-      currentTimeDisplay.textContent = formatTime(elapsedTime);
+      document.getElementById("progress-bar").style.width = `${
+        (elapsedTime / duration_ms) * 100
+      }%`;
+      document.getElementById("current-time").textContent =
+        formatTime(elapsedTime);
     };
     nowPlayingInterval = setInterval(update, 500);
     update();
   }
-
   function updateNowPlayingUI(nowPlaying, isPlaying) {
+    updatePlayPauseIcon(isPlaying);
+    const artEl = document.getElementById("now-playing-art");
+    const nameEl = document.getElementById("now-playing-name");
+    const artistEl = document.getElementById("now-playing-artist");
+    const bgEl = document.getElementById("room-background");
+    const totalTimeEl = document.getElementById("total-time");
     if (!nowPlaying || !nowPlaying.track) {
-      nowPlayingCard.classList.remove("is-playing");
-      nowPlayingArt.src = "/assets/placeholder.svg";
-      nowPlayingName.textContent = "Nothing Playing";
-      nowPlayingArtist.textContent = "Add a song to start the vibe";
-      roomBackground.style.backgroundImage = "none";
-      progressBar.style.width = "0%";
-      currentTimeDisplay.textContent = "0:00";
-      totalTimeDisplay.textContent = "0:00";
-      playPauseBtn.innerHTML = playIcon;
+      document
+        .querySelector(".now-playing-card")
+        .classList.remove("is-playing");
+      artEl.src = "/assets/placeholder.svg";
+      nameEl.textContent = "Nothing Playing";
+      artistEl.textContent = "Add a YouTube link to start the vibe";
+      bgEl.style.backgroundImage = "none";
+      document.getElementById("progress-bar").style.width = "0%";
+      document.getElementById("current-time").textContent = "0:00";
+      totalTimeEl.textContent = "0:00";
       return;
     }
     const { track } = nowPlaying;
-    nowPlayingCard.classList.add("is-playing");
-    nowPlayingArt.src = track.albumArt;
-    nowPlayingName.textContent = track.name;
-    nowPlayingArtist.textContent = track.artist;
-    roomBackground.style.backgroundImage = `url('${track.albumArt}')`;
-    totalTimeDisplay.textContent = formatTime(track.duration_ms);
+    currentSongDuration = track.duration_ms;
+    document.querySelector(".now-playing-card").classList.add("is-playing");
+    artEl.src = track.albumArt || "/assets/placeholder.svg";
+    nameEl.textContent = track.name;
+    artistEl.textContent = track.artist;
+    bgEl.style.backgroundImage = `url('${track.albumArt}')`;
+    totalTimeEl.textContent = formatTime(track.duration_ms);
+  }
+  function updatePlayPauseIcon(isPlaying) {
     playPauseBtn.innerHTML = isPlaying ? pauseIcon : playIcon;
   }
-
   function renderChatMessage(message) {
+    const chatMessages = document.getElementById("chat-messages");
     const msgDiv = document.createElement("div");
     msgDiv.className = "chat-message";
-    msgDiv.innerHTML = `
-            <div class="chat-message__avatar">${getInitials(message.user)}</div>
-            <div class="chat-message__content">
-                <div class="chat-message__header">
-                    <span class="chat-message__username">${message.user}</span>
-                    <span class="chat-message__timestamp">${new Date().toLocaleTimeString(
-                      [],
-                      { hour: "2-digit", minute: "2-digit" }
-                    )}</span>
-                </div>
-                <p class="chat-message__text">${message.text}</p>
-            </div>`;
-    const usernameEl = msgDiv.querySelector(".chat-message__username");
-    if (isHost && currentUser && currentUser.id !== message.userId) {
-      usernameEl.classList.add("kickable");
-      usernameEl.title = "Click to moderate";
-      usernameEl.onclick = () => {
-        if (confirm(`Do you want to kick ${message.user} from the room?`))
-          socket.emit("kickUser", {
-            roomId: currentRoomId,
-            targetSpotifyId: message.userId,
-          });
-      };
-    }
+    msgDiv.innerHTML = `<img src="${message.avatar}" alt="${
+      message.user
+    }" class="chat-message__avatar"><div class="chat-message__content"><div class="chat-message__header"><span class="chat-message__username">${
+      message.user
+    }</span><span class="chat-message__timestamp">${new Date().toLocaleTimeString(
+      [],
+      { hour: "2-digit", minute: "2-digit" }
+    )}</span></div><p class="chat-message__text">${message.text}</p></div>`;
     chatMessages.appendChild(msgDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
-
   function renderSystemMessage(text) {
+    const chatMessages = document.getElementById("chat-messages");
     const p = document.createElement("p");
     p.className = "system-message";
     p.textContent = text;
     chatMessages.appendChild(p);
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
-
   function updateQueueUI(queue) {
+    const queueList = document.getElementById("queue-list");
     queueList.innerHTML = "";
     if (!queue || queue.length === 0) {
       queueList.innerHTML = '<p class="system-message">Queue is empty</p>';
       return;
     }
-    queue.forEach((track, index) => {
-      queueList.innerHTML += `
-                <div class="queue-item">
-                    <span class="queue-item__number">${index + 1}</span>
-                    <img src="${track.albumArt}" alt="${
-        track.name
-      }" class="queue-item__art">
-                    <div class="track-info"><p>${track.name}</p><p>${
-        track.artist
-      }</p></div>
-                    <span class="queue-item__duration">${formatTime(
-                      track.duration_ms
-                    )}</span>
-                </div>`;
-    });
-  }
-
-  function displaySearchResults(tracks) {
-    searchResults.innerHTML = "";
-    if (!tracks || tracks.length === 0) return;
-    tracks.forEach((track) => {
-      const trackDiv = document.createElement("div");
-      trackDiv.className = "queue-item";
-      trackDiv.style.cursor = "pointer";
-      trackDiv.innerHTML = `
-                <span class="queue-item__number"><svg style="width:24px;height:24px" viewBox="0 0 24 24"><path fill="currentColor" d="M19,11H13V5h-2v6H5v2h6v6h2v-6h6V11z" /></svg></span>
-                <img src="${
-                  track.album.images.slice(-1)[0]?.url ||
-                  "/assets/placeholder.svg"
-                }" alt="${track.name}" class="queue-item__art">
-                <div class="track-info"><p>${track.name}</p><p>${
-        track.artists[0].name
-      }</p></div>
-                <span class="queue-item__duration">${formatTime(
-                  track.duration_ms
-                )}</span>`;
-      trackDiv.onclick = () => {
-        socket.emit("addSong", {
-          roomId: currentRoomId,
-          trackId: track.id,
-          token,
-        });
-        searchInput.value = "";
-        searchResults.innerHTML = "";
-        searchResults.classList.remove("is-visible");
-      };
-      searchResults.appendChild(trackDiv);
+    queue.forEach((item, index) => {
+      const isProcessing = item.status === "processing";
+      const imageUrl = isProcessing
+        ? "/assets/placeholder.svg"
+        : item.albumArt || "/assets/placeholder.svg";
+      const queueItemDiv = document.createElement("div");
+      queueItemDiv.className = "queue-item";
+      if (isProcessing) {
+        queueItemDiv.style.opacity = "0.6";
+      }
+      queueItemDiv.innerHTML = `<span class="queue-item__number">${
+        isProcessing
+          ? '<svg class="spinner" viewBox="0 0 50 50"><circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle></svg>'
+          : index + 1
+      }</span><img src="${imageUrl}" alt="${
+        item.name
+      }" class="queue-item__art"><div class="track-info"><p>${
+        item.name
+      }</p><p>${
+        item.artist || ""
+      }</p></div><span class="queue-item__duration">${
+        isProcessing ? "" : formatTime(item.duration_ms)
+      }</span>`;
+      queueList.appendChild(queueItemDiv);
     });
   }
 });
