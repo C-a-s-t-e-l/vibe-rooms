@@ -415,15 +415,15 @@ body {
   color: hsl(var(--muted-foreground));
 }
 
-.queue-list::-webkit-scrollbar,
+.chat-messages::-webkit-scrollbar, .queue-list::-webkit-scrollbar,
 .search-results::-webkit-scrollbar {
   width: 8px;
 }
-.queue-list::-webkit-scrollbar-track,
+.chat-messages::-webkit-scrollbar, .queue-list::-webkit-scrollbar-track,
 .search-results::-webkit-scrollbar-track {
   background: transparent;
 }
-.queue-list::-webkit-scrollbar-thumb,
+.chat-messages::-webkit-scrollbar, .queue-list::-webkit-scrollbar-thumb,
 .search-results::-webkit-scrollbar-thumb {
   background-color: hsl(var(--muted));
   border-radius: 10px;
