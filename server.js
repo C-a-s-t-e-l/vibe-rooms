@@ -182,26 +182,55 @@ async function handleAddPlaylist({ roomId, playlistId, token }) {
 }
 
 async function handleAddYouTubeTrack({ roomId, videoId }) {
-    // This function remains the same as it's not user-auth dependent
     const room = rooms[roomId];
-    if (!room || !YOUTUBE_API_KEY) return;
+    if (!room) return;
+    console.log(`Attempting to extract direct audio for YouTube video: ${videoId}`);
+
     try {
-        const { data } = await axios.get(`https://www.googleapis.com/youtube/v3/videos`, {
-            params: { id: videoId, key: YOUTUBE_API_KEY, part: 'snippet,contentDetails' }
+        // This mimics the youtube-dl/yt-dlp approach by calling the internal player API
+        const response = await axios.post(`https://www.youtube.com/youtubei/v1/player?key=${YOUTUBE_API_KEY}`, {
+            context: {
+                client: {
+                    clientName: "WEB",
+                    clientVersion: "2.20210721.00.00",
+                },
+            },
+            videoId: videoId,
         });
-        if (!data.items[0]) return;
-        const video = data.items[0];
-        const durationRegex = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/;
-        const matches = video.contentDetails.duration.match(durationRegex);
-        const durationMs = ((parseInt(matches[1] || 0) * 3600) + (parseInt(matches[2] || 0) * 60) + parseInt(matches[3] || 0)) * 1000;
+
+        const playerResponse = response.data;
+        
+        // Find the best audio-only format
+        const audioFormats = playerResponse.streamingData?.adaptiveFormats?.filter(f => f.mimeType.startsWith('audio/'));
+        if (!audioFormats || audioFormats.length === 0) {
+            console.error(`No audio formats found for YouTube video ${videoId}`);
+            return;
+        }
+
+        // Prefer opus, but fallback to anything
+        const bestAudio = audioFormats.find(f => f.mimeType.includes('opus')) || audioFormats[0];
+        
+        const videoDetails = playerResponse.videoDetails;
+        const durationMs = parseInt(videoDetails.lengthSeconds) * 1000;
+
         const track = {
-            id: video.id, name: video.snippet.title, artist: video.snippet.channelTitle,
-            albumArt: video.snippet.thumbnails.high.url, duration_ms: durationMs, source: 'youtube'
+            id: videoDetails.videoId,
+            name: videoDetails.title,
+            artist: videoDetails.author,
+            albumArt: videoDetails.thumbnail.thumbnails.pop().url, // Get highest quality thumbnail
+            duration_ms: durationMs,
+            source: 'youtube',
+            // CRITICAL: We now store the direct audio URL
+            url: bestAudio.url,
         };
+
         room.queue.push(track);
         io.to(roomId).emit('queueUpdated', room.queue);
         if (!room.nowPlaying) playNextSong(roomId);
-    } catch (e) { console.error("Error adding YouTube track:", e.response?.data?.error || e.message); }
+
+    } catch (e) {
+        console.error("Error extracting YouTube audio stream:", e.response?.data?.error || e.message);
+    }
 }
 
 function playNextSong(roomId) {
