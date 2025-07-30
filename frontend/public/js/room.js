@@ -40,63 +40,112 @@ document.addEventListener("DOMContentLoaded", () => {
   socket.emit("joinRoom", currentRoomId);
 
   // --- SOCKET LISTENERS (No changes in this step) ---
- // --- In public/js/room.js ---
+  // --- In public/js/room.js ---
 
-function setupSocketListeners() {
+  function setupSocketListeners() {
     socket.on("roomState", (data) => {
-        if (!data) {
-            alert("This Vibe Room doesn't exist or has ended.");
-            window.location.href = "/";
-            return;
-        }
+      if (!data) {
+        alert("This Vibe Room doesn't exist or has ended.");
+        window.location.href = "/";
+        return;
+      }
 
-        document.title = data.name;
-        
-        isHost = data.isHost;
-        const addVibeWrapper = document.getElementById("add-vibe-wrapper");
-        addVibeWrapper.classList.toggle("is-host", isHost);
-        addVibeWrapper.classList.toggle("is-guest", !isHost);
-        document.getElementById("host-controls-wrapper").classList.toggle("is-guest", !isHost);
-        document.getElementById("room-name-display").textContent = data.name;
+      document.title = data.name;
 
-        // Update all UI elements from the initial state
-        currentPlaylistState = data.playlistState || { playlist: [], nowPlayingIndex: -1 };
-        updatePlaylistUI(currentPlaylistState);
-        currentSuggestions = data.suggestions || [];
-        updateSuggestionsUI(currentSuggestions);
-        updateUserListUI(data.userList || []); // Use the user list from roomState
-        document.getElementById("listener-count-display").textContent = data.listenerCount;
+      isHost = data.isHost;
+      const addVibeWrapper = document.getElementById("add-vibe-wrapper");
+      addVibeWrapper.classList.toggle("is-host", isHost);
+      addVibeWrapper.classList.toggle("is-guest", !isHost);
+      document
+        .getElementById("host-controls-wrapper")
+        .classList.toggle("is-guest", !isHost);
+      document.getElementById("room-name-display").textContent = data.name;
 
-        syncPlayerState(data.nowPlaying);
+      // Update all UI elements from the initial state
+      currentPlaylistState = data.playlistState || {
+        playlist: [],
+        nowPlayingIndex: -1,
+      };
+      updatePlaylistUI(currentPlaylistState);
+      currentSuggestions = data.suggestions || [];
+      updateSuggestionsUI(currentSuggestions);
+      updateUserListUI(data.userList || []); // Use the user list from roomState
+      document.getElementById("listener-count-display").textContent =
+        data.listenerCount;
+
+      syncPlayerState(data.nowPlaying);
     });
 
     socket.on("newSongPlaying", (nowPlayingData) => {
-        if (nowPlayingData && nowPlayingData.nowPlayingIndex !== undefined) {
-            currentPlaylistState.nowPlayingIndex = nowPlayingData.nowPlayingIndex;
-            updatePlaylistUI(currentPlaylistState);
-        }
-        syncPlayerState(nowPlayingData);
+      if (nowPlayingData && nowPlayingData.nowPlayingIndex !== undefined) {
+        currentPlaylistState.nowPlayingIndex = nowPlayingData.nowPlayingIndex;
+        updatePlaylistUI(currentPlaylistState);
+      }
+      syncPlayerState(nowPlayingData);
     });
 
     socket.on("playlistUpdated", (playlistState) => {
-        currentPlaylistState = playlistState;
-        updatePlaylistUI(playlistState);
+      currentPlaylistState = playlistState;
+      updatePlaylistUI(playlistState);
     });
 
-    socket.on('syncPulse', (data) => { if (isHost || !data || !data.track) return; updatePlayPauseIcon(data.isPlaying); const latency = Date.now() - data.serverTimestamp; const correctedPosition = data.position + latency; const clientPosition = nativeAudioPlayer.currentTime * 1000; const drift = Math.abs(correctedPosition - clientPosition); if (drift > 350) { nativeAudioPlayer.currentTime = correctedPosition / 1000; if (data.isPlaying) { startProgressTimer(Date.now() - correctedPosition, data.track.duration_ms); } } if (data.isPlaying && nativeAudioPlayer.paused) { nativeAudioPlayer.play().catch(e => console.error("Sync play failed", e)); } else if (!data.isPlaying && !nativeAudioPlayer.paused) { nativeAudioPlayer.pause(); } });
-    socket.on("hostAssigned", () => { isHost = true; const addVibeWrapper = document.getElementById("add-vibe-wrapper"); addVibeWrapper.classList.add("is-host"); addVibeWrapper.classList.remove("is-guest"); document.getElementById("host-controls-wrapper").classList.remove("is-guest"); renderSystemMessage("👑 You are now the host of this room!"); updatePlaylistUI(currentPlaylistState); updateSuggestionsUI(currentSuggestions); });
-    socket.on("suggestionsUpdated", (suggestions) => { currentSuggestions = suggestions; updateSuggestionsUI(suggestions); });
-    socket.on("newChatMessage", (message) => message.system ? renderSystemMessage(message.text) : renderChatMessage(message));
-    socket.on("searchYouTubeResults", (results) => { updateSearchResultsUI(results); });
-    
+    socket.on("syncPulse", (data) => {
+      if (isHost || !data || !data.track) return;
+      updatePlayPauseIcon(data.isPlaying);
+      const latency = Date.now() - data.serverTimestamp;
+      const correctedPosition = data.position + latency;
+      const clientPosition = nativeAudioPlayer.currentTime * 1000;
+      const drift = Math.abs(correctedPosition - clientPosition);
+      if (drift > 350) {
+        nativeAudioPlayer.currentTime = correctedPosition / 1000;
+        if (data.isPlaying) {
+          startProgressTimer(
+            Date.now() - correctedPosition,
+            data.track.duration_ms
+          );
+        }
+      }
+      if (data.isPlaying && nativeAudioPlayer.paused) {
+        nativeAudioPlayer
+          .play()
+          .catch((e) => console.error("Sync play failed", e));
+      } else if (!data.isPlaying && !nativeAudioPlayer.paused) {
+        nativeAudioPlayer.pause();
+      }
+    });
+    socket.on("hostAssigned", () => {
+      isHost = true;
+      const addVibeWrapper = document.getElementById("add-vibe-wrapper");
+      addVibeWrapper.classList.add("is-host");
+      addVibeWrapper.classList.remove("is-guest");
+      document
+        .getElementById("host-controls-wrapper")
+        .classList.remove("is-guest");
+      
+      updatePlaylistUI(currentPlaylistState);
+      updateSuggestionsUI(currentSuggestions);
+    });
+    socket.on("suggestionsUpdated", (suggestions) => {
+      currentSuggestions = suggestions;
+      updateSuggestionsUI(suggestions);
+    });
+    socket.on("newChatMessage", (message) =>
+      message.system
+        ? renderSystemMessage(message.text)
+        : renderChatMessage(message)
+    );
+    socket.on("searchYouTubeResults", (results) => {
+      updateSearchResultsUI(results);
+    });
+
     // *** THE FIX: Handle dedicated updates for the user list and count ***
     socket.on("updateUserList", (users) => {
-        updateUserListUI(users);
+      updateUserListUI(users);
     });
     socket.on("updateListenerCount", (count) => {
-        document.getElementById("listener-count-display").textContent = count;
+      document.getElementById("listener-count-display").textContent = count;
     });
-}
+  }
 
   // --- UI EVENT LISTENERS ---
   function setupUIEventListeners() {
@@ -151,27 +200,36 @@ function setupSocketListeners() {
     });
 
     const handleLinkSubmit = (e) => {
-        e.preventDefault();
-        const inputEl = isHost ? document.getElementById("host-link-input") : document.getElementById("guest-link-input");
-        const url = inputEl.value.trim();
-        if (!url) return;
+      e.preventDefault();
+      const inputEl = isHost
+        ? document.getElementById("host-link-input")
+        : document.getElementById("guest-link-input");
+      const url = inputEl.value.trim();
+      if (!url) return;
 
-        // Optimistic UI spinner
-        if (isHost) {
-            addSpinnerItem(document.getElementById("queue-list"));
-        } else {
-            addSpinnerItem(document.getElementById("suggestions-list"), "Suggesting...");
-        }
+      // Optimistic UI spinner
+      if (isHost) {
+        addSpinnerItem(document.getElementById("queue-list"));
+      } else {
+        addSpinnerItem(
+          document.getElementById("suggestions-list"),
+          "Suggesting..."
+        );
+      }
 
-        socket.emit("addYouTubeTrack", { roomId: currentRoomId, url: url });
-        
-        // *** THE CHANGE: Add toast notification ***
-        showToast(isHost ? "Added to playlist!" : "Suggestion sent!");
+      socket.emit("addYouTubeTrack", { roomId: currentRoomId, url: url });
 
-        inputEl.value = "";
+      // *** THE CHANGE: Add toast notification ***
+      showToast(isHost ? "Added to playlist!" : "Suggestion sent!");
+
+      inputEl.value = "";
     };
-    document.getElementById("host-link-form").addEventListener("submit", handleLinkSubmit);
-    document.getElementById("guest-link-form").addEventListener("submit", handleLinkSubmit);
+    document
+      .getElementById("host-link-form")
+      .addEventListener("submit", handleLinkSubmit);
+    document
+      .getElementById("guest-link-form")
+      .addEventListener("submit", handleLinkSubmit);
 
     const searchForm = document.getElementById("search-form");
     const searchInput = document.getElementById("search-input");
@@ -199,20 +257,20 @@ function setupSocketListeners() {
         searchResults.style.display = "none"; // Hide the results
       }
     });
-      const tabButtons = document.querySelectorAll('.tab-btn');
-    const tabContents = document.querySelectorAll('.tab-content');
+    const tabButtons = document.querySelectorAll(".tab-btn");
+    const tabContents = document.querySelectorAll(".tab-content");
 
-    tabButtons.forEach(button => {
-      button.addEventListener('click', () => {
+    tabButtons.forEach((button) => {
+      button.addEventListener("click", () => {
         const tab = button.dataset.tab;
 
-        tabButtons.forEach(btn => btn.classList.remove('active'));
-        button.classList.add('active');
+        tabButtons.forEach((btn) => btn.classList.remove("active"));
+        button.classList.add("active");
 
-        tabContents.forEach(content => {
-          content.classList.remove('active');
+        tabContents.forEach((content) => {
+          content.classList.remove("active");
           if (content.id === `${tab}-content`) {
-            content.classList.add('active');
+            content.classList.add("active");
           }
         });
       });
@@ -256,29 +314,38 @@ function setupSocketListeners() {
       const resultDiv = document.createElement("div");
       resultDiv.className = "search-result-item";
       resultDiv.innerHTML = `<img src="${item.thumbnail}" alt="${item.title}"> <div class="track-info"> <p>${item.title}</p> <p>${item.artist}</p> </div>`;
-      resultDiv.addEventListener('click', () => {
+      resultDiv.addEventListener("click", () => {
         const youtubeUrl = `https://www.youtube.com/watch?v=${item.videoId}`;
-        
-        if (isHost) { addSpinnerItem(document.getElementById("queue-list")); } 
-        else { addSpinnerItem(document.getElementById("suggestions-list"), "Suggesting..."); }
-        
-        socket.emit("addYouTubeTrack", { roomId: currentRoomId, url: youtubeUrl });
-        
+
+        if (isHost) {
+          addSpinnerItem(document.getElementById("queue-list"));
+        } else {
+          addSpinnerItem(
+            document.getElementById("suggestions-list"),
+            "Suggesting..."
+          );
+        }
+
+        socket.emit("addYouTubeTrack", {
+          roomId: currentRoomId,
+          url: youtubeUrl,
+        });
+
         // *** THE CHANGE: Add toast notification ***
         showToast(isHost ? "Added to playlist!" : "Suggestion sent!");
 
         // Clear search
-        document.getElementById("search-input").value = '';
-        resultsList.innerHTML = '';
-        resultsList.style.display = 'none';
+        document.getElementById("search-input").value = "";
+        resultsList.innerHTML = "";
+        resultsList.style.display = "none";
       });
       resultsList.appendChild(resultDiv);
     });
   }
 
-  function showToast(message, type = 'success') {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
+  function showToast(message, type = "success") {
+    const container = document.getElementById("toast-container");
+    const toast = document.createElement("div");
     toast.className = `toast ${type}`;
     toast.textContent = message;
     container.appendChild(toast);
@@ -289,7 +356,7 @@ function setupSocketListeners() {
     }, 4000); // Should match the animation duration
   }
 
-   function updateUserListUI(users) {
+  function updateUserListUI(users) {
     const userList = document.getElementById("user-list");
     const userCountDisplay = document.getElementById("user-count-display");
     userList.innerHTML = "";
@@ -297,12 +364,12 @@ function setupSocketListeners() {
 
     users.sort((a, b) => b.isHost - a.isHost); // Ensure host is always at the top
 
-    users.forEach(user => {
+    users.forEach((user) => {
       const userItem = document.createElement("div");
       userItem.className = "user-list-item";
-      
-      const hostIcon = user.isHost ? '<span class="host-icon">👑</span>' : '';
-      
+
+      const hostIcon = user.isHost ? '<span class="host-icon">👑</span>' : "";
+
       userItem.innerHTML = `
         <img src="${user.avatar}" alt="${user.displayName}">
         <span>${user.displayName}</span>
