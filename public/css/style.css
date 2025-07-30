@@ -146,11 +146,7 @@ body {
     overflow: hidden;
     cursor: pointer;
     transition: all 0.3s ease-out;
-    
-    /* --- THE FIX (Part 1) --- */
-    /* Set the fallback color directly on the card */
     background-color: hsl(var(--card)); 
-    /* These properties apply to the dynamic background image set by JS */
     background-size: cover;
     background-position: center;
 }
@@ -159,15 +155,9 @@ body {
     content: '';
     position: absolute;
     inset: 0;
-    
-    /* This filter will now correctly apply to the parent's background */
     backdrop-filter: blur(15px) brightness(40%);
     -webkit-backdrop-filter: blur(15px) brightness(40%);
-    
-    /* --- THE FIX (Part 2) --- */
-    /* REMOVE the background-color from here to make the layer transparent */
-
-    z-index: 1; /* Place it above the parent's background but below the content */
+    z-index: 1;
 }
 
 .room-card:hover {
@@ -227,4 +217,24 @@ body {
   margin-top: 5rem;
   padding: 3rem 1.5rem;
   color: hsl(var(--muted-foreground));
+}
+
+/* --- RESPONSIVE STYLES --- */
+@media (max-width: 768px) {
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  .main-nav {
+    padding: 1rem;
+  }
+  .hero-title {
+    font-size: clamp(2.5rem, 15vw, 4.5rem);
+  }
+  .hero-subtitle {
+    font-size: 1.125rem;
+  }
+  .rooms-grid {
+    gap: 1rem;
+  }
 }
