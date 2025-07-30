@@ -45,7 +45,17 @@ passport.use(
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       callbackURL: "/auth/google/callback",
     },
-    (accessToken, refreshToken, profile, done) => done(null, profile)
+    async (accessToken, refreshToken, profile, done) => {
+      // The `profile` object contains the user's Google info.
+      // We'll create a user in Supabase Auth if they don't exist.
+      // This is a custom function we will need to write or handle.
+      // For now, let's just attach the Google ID and handle it in our room creation.
+      // The simplest fix is to NOT use a foreign key for now.
+      
+      // Let's stick with the simplest fix for now to get you unblocked.
+      // We will pass the Google ID through.
+      return done(null, profile);
+    }
   )
 );
 passport.serializeUser((user, done) => done(null, user));
@@ -222,53 +232,24 @@ function handleJoinRoom(socket, roomId) {
 }
 
 async function getLiveVibes() {
-  // This query is a bit more advanced. It does the following:
-  // 1. Joins 'rooms' and 'vibes' tables.
-  // 2. Groups by vibe id, name, and type.
-  // 3. Counts how many rooms exist for each vibe.
-  const { data: activeVibes, error: activeVibesError } = await supabase
-    .from('rooms')
-    .select(`
-      vibes ( id, name, type ),
-      count:id
-    `)
-    .count('id', { head: false })
-    .groupBy('vibes(id, name, type)');
+  // Call the database function we just created.
+  const { data, error } = await supabase.rpc('get_live_vibe_counts');
 
-  if (activeVibesError) {
-    console.error("Error fetching active vibe counts:", activeVibesError);
+  if (error) {
+    console.error("Error fetching live vibe counts via RPC:", error);
     return [];
   }
 
-  // Also, fetch all PRESET vibes to ensure they are always displayed, even with a count of 0.
-  const { data: presetVibes, error: presetVibesError } = await supabase
-    .from('vibes')
-    .select('id, name, type')
-    .eq('type', 'PRESET');
+  // The RPC returns a list of objects. We just need to rename 'room_count' to 'count'
+  // for consistency with the frontend, and then sort it.
+  const vibesWithCounts = data.map(v => ({
+    id: v.id,
+    name: v.name,
+    type: v.type,
+    count: v.room_count // Remap the count field
+  }));
   
-  if (presetVibesError) {
-    console.error("Error fetching preset vibes:", presetVibesError);
-    return [];
-  }
-
-  // Merge the two lists. Use a Map to handle duplicates and combine counts.
-  const vibeMap = new Map();
-
-  // Add all presets to the map with a default count of 0.
-  presetVibes.forEach(v => {
-    vibeMap.set(v.name, { ...v, count: 0 });
-  });
-
-  // Update with counts from active rooms.
-  activeVibes.forEach(v => {
-    // The data structure from the count query is a bit nested
-    if (v.vibes) {
-      vibeMap.set(v.vibes.name, { ...v.vibes, count: v.count });
-    }
-  });
-
-  // Convert the map back to an array and sort it.
-  return Array.from(vibeMap.values()).sort((a, b) => b.count - a.count);
+  return vibesWithCounts.sort((a, b) => b.count - a.count);
 }
 
 async function broadcastLobbyData() {
