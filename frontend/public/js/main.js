@@ -1,7 +1,7 @@
 // public/js/main.js
 
 document.addEventListener("DOMContentLoaded", () => {
-  const socket = io();
+  const socket = io("https://your-backend-app-name.onrender.com");
 
   // --- Core DOM Elements ---
   const navActions = document.querySelector(".nav-actions");
@@ -151,12 +151,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             </div>
                         </div>
                     `;
-          // --- THE FIX ---
-          // The server now sends the `slug` for each room. We use that for the link.
-          roomCard.addEventListener("click", () => {
-            window.location.href = `/room/${room.slug}`;
-          });
-          // --- END OF FIX ---
+         roomCard.addEventListener("click", () => (window.location.href = `/room/${room.slug}`));
           roomsGrid.appendChild(roomCard);
         });
       }
@@ -203,9 +198,9 @@ document.addEventListener("DOMContentLoaded", () => {
       renderVibeTags(vibes);
       renderFilteredRooms();
     });
-    socket.on('roomCreated', ({ slug }) => { // We now receive the slug
-    // Redirect user to the new room using the slug-based URL
-    window.location.href = `/room/${slug}`;
+    socket.on("roomCreated", ({ slug }) => {
+  // We now receive the slug
+  window.location.href = `/room/${slug}`;
 });
 
     // Initial fetch of rooms
