@@ -1,7 +1,8 @@
 // public/js/room.js (Final Polish: Click-outside-to-close Search)
+// In frontend/public/js/room.js
 
 document.addEventListener("DOMContentLoaded", () => {
-  // All setup, state, and utility functions remain the same...
+  // --- HELPER FUNCTIONS ---
   const formatTime = (ms) => {
     if (!ms || isNaN(ms)) return "0:00";
     const totalSeconds = Math.floor(ms / 1000);
@@ -9,20 +10,43 @@ document.addEventListener("DOMContentLoaded", () => {
     const seconds = totalSeconds % 60;
     return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
   };
+
+  function updatePageTitle(roomName, nowPlayingData) {
+    if (nowPlayingData && nowPlayingData.track) {
+        document.title = `${roomName} - ${nowPlayingData.track.name}`;
+    } else {
+        document.title = roomName;
+    }
+  }
+
+  // --- INITIAL SETUP & STATE VARIABLES ---
   const socket = io();
-  const currentRoomId = window.location.pathname.split("/").pop();
+  
+  // --- THE FIX FOR SLUGS vs IDs ---
+  // 1. Get the SLUG from the browser's URL bar.
+  const currentRoomSlug = window.location.pathname.split("/").pop();
+  // 2. We don't know the numerical ID yet. We will learn it from the server.
+  let currentRoomId = null; 
+  // --- END OF FIX ---
+
   let nowPlayingInterval;
   let isHost = false,
     audioContextUnlocked = false,
     currentSongDuration = 0;
+  let currentRoomName = "Vibe Room"; // Default name
+  let isSeekingOrLoading = false;
   let playAfterUnlock = false;
   let currentSuggestions = [];
   let currentPlaylistState = { playlist: [], nowPlayingIndex: -1 };
+  
+  // --- DOM ELEMENT REFERENCES ---
   const audioUnlockOverlay = document.getElementById("audio-unlock-overlay");
   const playPauseBtn = document.getElementById("play-pause-btn");
   const nativeAudioPlayer = document.getElementById("native-audio-player");
-  const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7Z"/></svg>`;
+  const playIcon = `<svg xmlns="http://www.w.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7Z"/></svg>`;
   const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
+
+  // --- AUDIO UNLOCK LOGIC ---
   function unlockAudio() {
     if (audioContextUnlocked) return;
     audioContextUnlocked = true;
@@ -35,48 +59,67 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
   audioUnlockOverlay.addEventListener("click", unlockAudio);
+
+  // --- INITIALIZE THE APP ---
   setupSocketListeners();
   setupUIEventListeners();
-  socket.emit("joinRoom", currentRoomId);
+  
+  // --- THE FIX FOR SLUGS vs IDs ---
+  // 3. When we join, we tell the server the SLUG we want to join.
+  socket.emit("joinRoom", currentRoomSlug);
+  // --- END OF FIX ---
+
 
   // --- SOCKET LISTENERS (No changes in this step) ---
   // --- In public/js/room.js ---
-
   function setupSocketListeners() {
     socket.on("roomState", (data) => {
-      if (!data) {
+    if (!data) {
+        // This is now handled by the 'roomNotFound' event, but we'll keep it as a fallback.
         alert("This Vibe Room doesn't exist or has ended.");
         window.location.href = "/";
         return;
-      }
+    }
 
-      document.title = data.name;
+    // --- THE FIX FOR SLUGS vs IDs ---
+    // The server tells us the real, numerical ID. We save it here for all future events.
+    currentRoomId = data.id;
+    // --- END OF FIX ---
 
-      isHost = data.isHost;
-      const addVibeWrapper = document.getElementById("add-vibe-wrapper");
-      addVibeWrapper.classList.toggle("is-host", isHost);
-      addVibeWrapper.classList.toggle("is-guest", !isHost);
-      document
-        .getElementById("host-controls-wrapper")
-        .classList.toggle("is-guest", !isHost);
-      document.getElementById("room-name-display").textContent = data.name;
+    // Store the room name for dynamic page title updates
+    currentRoomName = data.name;
+    // Set the initial page title correctly
+    updatePageTitle(currentRoomName, data.nowPlaying);
 
-      // Update all UI elements from the initial state
-      currentPlaylistState = data.playlistState || {
-        playlist: [],
-        nowPlayingIndex: -1,
-      };
-      updatePlaylistUI(currentPlaylistState);
-      currentSuggestions = data.suggestions || [];
-      updateSuggestionsUI(currentSuggestions);
-      updateUserListUI(data.userList || []); // Use the user list from roomState
-      document.getElementById("listener-count-display").textContent =
-        data.listenerCount;
+    isHost = data.isHost;
+    
+    // Toggle UI elements based on host status
+    const addVibeWrapper = document.getElementById("add-vibe-wrapper");
+    addVibeWrapper.classList.toggle("is-host", isHost);
+    addVibeWrapper.classList.toggle("is-guest", !isHost);
+    document.getElementById("host-controls-wrapper").classList.toggle("is-guest", !isHost);
+    
+    // Update display elements with initial data
+    document.getElementById("room-name-display").textContent = data.name;
+    document.getElementById("listener-count-display").textContent = data.listenerCount;
 
-      syncPlayerState(data.nowPlaying);
-    });
+    // Update local state variables
+    currentPlaylistState = data.playlistState || { playlist: [], nowPlayingIndex: -1 };
+    currentSuggestions = data.suggestions || [];
+
+    // Render the UI components with the initial state
+    updatePlaylistUI(currentPlaylistState);
+    updateSuggestionsUI(currentSuggestions);
+    updateUserListUI(data.userList || []);
+
+    // Sync the player to the initial state received from the server
+    syncPlayerState(data.nowPlaying);
+});
 
     socket.on("newSongPlaying", (nowPlayingData) => {
+
+      updatePageTitle(currentRoomName, nowPlayingData);
+
       if (nowPlayingData && nowPlayingData.nowPlayingIndex !== undefined) {
         currentPlaylistState.nowPlayingIndex = nowPlayingData.nowPlayingIndex;
         updatePlaylistUI(currentPlaylistState);
@@ -89,30 +132,32 @@ document.addEventListener("DOMContentLoaded", () => {
       updatePlaylistUI(playlistState);
     });
 
-    socket.on("syncPulse", (data) => {
-      if (isHost || !data || !data.track) return;
-      updatePlayPauseIcon(data.isPlaying);
-      const latency = Date.now() - data.serverTimestamp;
-      const correctedPosition = data.position + latency;
-      const clientPosition = nativeAudioPlayer.currentTime * 1000;
-      const drift = Math.abs(correctedPosition - clientPosition);
-      if (drift > 350) {
+   socket.on("syncPulse", (data) => {
+    // --- THE FIX: PART 3 ---
+    // If we are the host OR if a critical load is in progress, IGNORE the pulse.
+    if (isHost || isSeekingOrLoading || !data || !data.track) {
+        return;
+    }
+    // --- END OF FIX ---
+
+    updatePlayPauseIcon(data.isPlaying);
+    const latency = Date.now() - data.serverTimestamp;
+    const correctedPosition = data.position + latency;
+    const clientPosition = nativeAudioPlayer.currentTime * 1000;
+    const drift = Math.abs(correctedPosition - clientPosition);
+
+    if (drift > 350) { // Keep this threshold reasonable
         nativeAudioPlayer.currentTime = correctedPosition / 1000;
         if (data.isPlaying) {
-          startProgressTimer(
-            Date.now() - correctedPosition,
-            data.track.duration_ms
-          );
+            startProgressTimer(Date.now() - correctedPosition, data.track.duration_ms);
         }
-      }
-      if (data.isPlaying && nativeAudioPlayer.paused) {
-        nativeAudioPlayer
-          .play()
-          .catch((e) => console.error("Sync play failed", e));
-      } else if (!data.isPlaying && !nativeAudioPlayer.paused) {
+    }
+    if (data.isPlaying && nativeAudioPlayer.paused) {
+        nativeAudioPlayer.play().catch((e) => console.error("Sync play failed", e));
+    } else if (!data.isPlaying && !nativeAudioPlayer.paused) {
         nativeAudioPlayer.pause();
-      }
-    });
+    }
+});
     socket.on("hostAssigned", () => {
       isHost = true;
       const addVibeWrapper = document.getElementById("add-vibe-wrapper");
@@ -145,6 +190,10 @@ document.addEventListener("DOMContentLoaded", () => {
     socket.on("updateListenerCount", (count) => {
       document.getElementById("listener-count-display").textContent = count;
     });
+    socket.on('roomNotFound', () => {
+    alert("Oops! This Vibe Room doesn't exist or has ended. Taking you back to the lobby.");
+    window.location.href = '/';
+});
   }
 
   // --- UI EVENT LISTENERS ---
@@ -450,36 +499,59 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
   }
-  function syncPlayerState(nowPlaying) {
+// In frontend/public/js/room.js
+
+function syncPlayerState(nowPlaying) {
     clearInterval(nowPlayingInterval);
     playAfterUnlock = false;
+    isSeekingOrLoading = true;
+
+    // --- THE FIX FOR THE GHOST TRACK ---
+    // This block runs when the playlist becomes empty.
     if (!nowPlaying || !nowPlaying.track) {
-      updateNowPlayingUI(null, false);
-      nativeAudioPlayer.src = "";
-      return;
+        updateNowPlayingUI(null, false);
+        // We must be explicit: PAUSE the player, THEN clear its source.
+        nativeAudioPlayer.pause();
+        nativeAudioPlayer.src = "";
+        isSeekingOrLoading = false;
+        return;
     }
+    // --- END OF FIX ---
+
     const { track, isPlaying, position, serverTimestamp } = nowPlaying;
     updateNowPlayingUI(nowPlaying, isPlaying);
-    if (nativeAudioPlayer.src !== track.url) {
-      nativeAudioPlayer.src = track.url;
+
+    const isNewTrack = nativeAudioPlayer.src !== track.url;
+    if (isNewTrack) {
+        nativeAudioPlayer.src = track.url;
     }
+
     nativeAudioPlayer.onloadedmetadata = () => {
-      const latency = Date.now() - serverTimestamp;
-      const correctedPosition = position + latency;
-      const targetPositionMs = Math.min(correctedPosition, track.duration_ms);
-      nativeAudioPlayer.currentTime = targetPositionMs / 1000;
-      if (isPlaying) {
-        if (audioContextUnlocked) {
-          nativeAudioPlayer
-            .play()
-            .catch((e) => console.error("Autoplay prevented:", e));
-        } else {
-          playAfterUnlock = true;
-          audioUnlockOverlay.style.display = "grid";
+        const latency = Date.now() - serverTimestamp;
+        const correctedPosition = position + latency;
+        const targetPositionMs = Math.min(correctedPosition, track.duration_ms);
+        
+        nativeAudioPlayer.currentTime = targetPositionMs / 1000;
+
+        if (isPlaying) {
+            if (audioContextUnlocked) {
+                nativeAudioPlayer.play().catch((e) => console.error("Autoplay prevented:", e));
+            } else {
+                playAfterUnlock = true;
+                audioUnlockOverlay.style.display = "grid";
+            }
         }
-      }
+        isSeekingOrLoading = false;
     };
-  }
+
+    if (!isNewTrack) {
+        const latency = Date.now() - serverTimestamp;
+        const correctedPosition = position + latency;
+        nativeAudioPlayer.currentTime = correctedPosition / 1000;
+        if(isPlaying && nativeAudioPlayer.paused) nativeAudioPlayer.play();
+        isSeekingOrLoading = false;
+    }
+}
   function startProgressTimer(startTime, duration_ms) {
     clearInterval(nowPlayingInterval);
     const update = () => {
