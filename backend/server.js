@@ -122,7 +122,8 @@ app.get("/room/:roomSlug", ensureAuthenticated, async (req, res) => {
   // If not in memory, check the database
   const { data } = await supabase.from("rooms").select("id").eq("slug", roomSlug).single();
   if (data) {
-    return res.sendFile(path.join(__dirname, "../frontend/views", "room.html"));
+    // CORRECTED PATH
+    return res.sendFile(path.join(__dirname, "../dist", "room.html"));
   }
 
   // Not found in either
