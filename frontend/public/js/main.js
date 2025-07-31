@@ -151,9 +151,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             </div>
                         </div>
                     `;
-          roomCard.addEventListener("click", () => {
-            window.location.href = `/room/${room.id}`;
-          });
+         roomCard.addEventListener("click", () => (window.location.href = `/room/${room.slug}`));
           roomsGrid.appendChild(roomCard);
         });
       }
@@ -200,9 +198,10 @@ document.addEventListener("DOMContentLoaded", () => {
       renderVibeTags(vibes);
       renderFilteredRooms();
     });
-    socket.on("roomCreated", ({ roomId }) => {
-      window.location.href = `/room/${roomId}`;
-    });
+    socket.on("roomCreated", ({ slug }) => {
+  // We now receive the slug
+  window.location.href = `/room/${slug}`;
+});
 
     // Initial fetch of rooms
     socket.emit("getRooms");
