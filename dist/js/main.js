@@ -24,7 +24,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const modalCreateBtn = document.getElementById("modal-create-btn");
 
   // --- Check Authentication Status on Page Load ---
-  fetch("/api/user")
+ fetch("https://vibes-fqic.onrender.com/api/user", {
+    credentials: "include", // This is ESSENTIAL for sending the session cookie
+  })
     .then((res) => res.json())
     .then((user) => {
       if (user && user.id) {
