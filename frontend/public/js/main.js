@@ -151,12 +151,9 @@ document.addEventListener("DOMContentLoaded", () => {
                             </div>
                         </div>
                     `;
-          // --- THE FIX ---
-          // The server now sends the `slug` for each room. We use that for the link.
           roomCard.addEventListener("click", () => {
-            window.location.href = `/room/${room.slug}`;
+            window.location.href = `/room/${room.id}`;
           });
-          // --- END OF FIX ---
           roomsGrid.appendChild(roomCard);
         });
       }
@@ -203,10 +200,9 @@ document.addEventListener("DOMContentLoaded", () => {
       renderVibeTags(vibes);
       renderFilteredRooms();
     });
-    socket.on('roomCreated', ({ slug }) => { // We now receive the slug
-    // Redirect user to the new room using the slug-based URL
-    window.location.href = `/room/${slug}`;
-});
+    socket.on("roomCreated", ({ roomId }) => {
+      window.location.href = `/room/${roomId}`;
+    });
 
     // Initial fetch of rooms
     socket.emit("getRooms");
