@@ -1,16 +1,14 @@
 {
-  "include": {
-    "patterns": [
-      "backend/",
-      "dist/",
-      "vercel.json",
-      ".gitignore",
-      "README.md"
-    ]
-  },
-  "ignore": {
-    "patterns": [
-      "node_modules/"
-    ]
-  }
+  "respectGitignore": false,
+  "include": [
+    "backend/**",
+    "dist/**",
+    "vercel.json",
+    ".gitignore",
+    "README.md"
+  ],
+  "exclude": [
+    "node_modules/**",
+    ".git/**"
+  ]
 }
