@@ -82,7 +82,7 @@ passport.use(
 );
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
-app.use(express.static(path.join(__dirname, "../dist")));
+// app.use(express.static(path.join(__dirname, "../dist")));
 
 const ensureAuthenticated = (req, res, next) => {
   if (req.isAuthenticated()) return next();
@@ -110,28 +110,28 @@ app.get("/api/user", (req, res) => {
   if (req.isAuthenticated()) res.json(req.user);
   else res.status(401).json({ message: "Not authenticated" });
 });
-app.get("/room/:roomSlug", ensureAuthenticated, async (req, res) => {
-  const { roomSlug } = req.params;
+// app.get("/room/:roomSlug", ensureAuthenticated, async (req, res) => {
+//   const { roomSlug } = req.params;
 
-  // Check memory first if a room with this slug is already active
-  const activeRoom = Object.values(rooms).find((r) => r.slug === roomSlug);
-  if (activeRoom) {
-   return res.sendFile(path.join(__dirname, "../dist", "room.html"));
-  }
+//   // Check memory first if a room with this slug is already active
+//   const activeRoom = Object.values(rooms).find((r) => r.slug === roomSlug);
+//   if (activeRoom) {
+//    return res.sendFile(path.join(__dirname, "../dist", "room.html"));
+//   }
 
-  // If not in memory, check the database
-  const { data } = await supabase.from("rooms").select("id").eq("slug", roomSlug).single();
-  if (data) {
-    // CORRECTED PATH
-    return res.sendFile(path.join(__dirname, "../dist", "room.html"));
-  }
+//   // If not in memory, check the database
+//   const { data } = await supabase.from("rooms").select("id").eq("slug", roomSlug).single();
+//   if (data) {
+//     // CORRECTED PATH
+//     return res.sendFile(path.join(__dirname, "../dist", "room.html"));
+//   }
 
-  // Not found in either
-  res.status(404).sendFile(path.join(__dirname, "../dist", "404.html"));
-});
-app.get("*", (req, res) => {
- res.sendFile(path.join(__dirname, "../dist", "index.html"));
-});
+//   // Not found in either
+//   res.status(404).sendFile(path.join(__dirname, "../dist", "404.html"));
+// });
+// app.get("*", (req, res) => {
+//  res.sendFile(path.join(__dirname, "../dist", "index.html"));
+// });
 io.engine.use(sessionMiddleware);
 io.engine.use(passport.initialize());
 io.engine.use(passport.session());

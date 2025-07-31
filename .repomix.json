@@ -1,6 +1,7 @@
 {
   "respectGitignore": false,
   "include": [
+    "!dist/**",
     "backend/**",
     "dist/**",
     "vercel.json",
