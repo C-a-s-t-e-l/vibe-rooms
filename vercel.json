@@ -3,6 +3,10 @@
     {
       "source": "/room/:slug",
       "destination": "/room.html"
+    },
+    {
+      "source": "/((?!api/|socket.io/).*)",
+      "destination": "/index.html"
     }
   ]
 }
