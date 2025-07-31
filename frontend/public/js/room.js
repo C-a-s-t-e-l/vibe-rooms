@@ -10,7 +10,8 @@ document.addEventListener("DOMContentLoaded", () => {
     return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
   };
   const socket = io();
-  const currentRoomId = window.location.pathname.split("/").pop();
+  const currentRoomSlug = window.location.pathname.split("/").pop();
+let currentRoomId = null;
   let nowPlayingInterval;
   let isHost = false,
     audioContextUnlocked = false,
@@ -37,7 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
   audioUnlockOverlay.addEventListener("click", unlockAudio);
   setupSocketListeners();
   setupUIEventListeners();
-  socket.emit("joinRoom", currentRoomId);
+  socket.emit("joinRoom", currentRoomSlug);
 
   // --- SOCKET LISTENERS (No changes in this step) ---
   // --- In public/js/room.js ---
@@ -49,6 +50,8 @@ document.addEventListener("DOMContentLoaded", () => {
         window.location.href = "/";
         return;
       }
+
+      currentRoomId = data.id; 
 
       document.title = data.name;
 
