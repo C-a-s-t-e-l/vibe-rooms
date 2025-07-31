@@ -13,7 +13,12 @@ const ytDlpExec = require("yt-dlp-exec");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  cors: {
+    origin: process.env.FRONTEND_URL, 
+    credentials: true
+  }
+});
 const PORT = process.env.PORT || 3000;
 const SYNC_INTERVAL = 4000;
 
@@ -49,8 +54,14 @@ app.use(
 const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET,
   resave: false,
-  saveUninitialized: true,
-  cookie: { secure: false },
+  saveUninitialized: false, // More secure default
+  proxy: true, // This is crucial for Render's proxy
+  cookie: {
+    secure: true, // Must be true for SameSite=None
+    httpOnly: true, // Prevents client-side JS from accessing the cookie
+    sameSite: 'none', // This is the magic setting for cross-site cookies
+    maxAge: 1000 * 60 * 60 * 24, // Sets cookie expiry to 1 day
+  },
 });
 
 
