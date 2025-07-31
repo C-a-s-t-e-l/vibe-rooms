@@ -18,6 +18,7 @@ const PORT = process.env.PORT || 3000;
 const SYNC_INTERVAL = 4000;
 const RECONNECTION_GRACE_PERIOD = 10 * 1000;
 const CACHE_DURATION = 15 * 60 * 1000;
+const URL_EXPIRATION_LIMIT = 5 * 60 * 1000;
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
@@ -25,8 +26,10 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 let rooms = {}; // This is our "Hot Cache" for live data
 let userSockets = {};
+const userToRoomMap = {}; // <-- THE NEW AUTHORITATIVE MAP
 const searchCache = new Map();
 const reconnectionTimers = {};
+const isUserJoining = new Set(); // We'll keep this lock
 
 // --- UNCHANGED: MIDDLEWARE & PASSPORT AUTH ---
 const sessionMiddleware = session({
@@ -121,9 +124,17 @@ io.on("connection", (socket) => {
   socket.on("getRooms", () => broadcastLobbyData());
   socket.on("createRoom", (roomData) => handleCreateRoom(socket, roomData));
   socket.on("joinRoom", (roomId) => handleJoinRoom(socket, roomId));
-  socket.on("leaveRoom", ({ roomId }) => processUserLeave(socket, roomId));
+  socket.on("leaveRoom", ({ roomId }) => handleIntentionalLeave(socket, roomId)); 
   socket.on("disconnect", () => handleLeaveRoom(socket));
   socket.on("sendMessage", (msg) => handleSendMessage(socket, msg));
+   socket.on('requestFreshSync', ({ roomId }) => {
+        const room = rooms[roomId];
+        // The server immediately replies to ONLY THE REQUESTING SOCKET
+        // with the most current playback state.
+        if (room && room.nowPlaying) {
+            socket.emit('syncPulse', getAuthoritativeNowPlaying(room));
+        }
+    });
   socket.on("hostPlaybackChange", (data) =>
     handleHostPlaybackChange(socket, data)
   );
@@ -216,163 +227,175 @@ async function broadcastLobbyData() {
 
 // In backend/server.js
 
-async function handleJoinRoom(socket, roomSlug) {
-    const user = socket.user;
+
+// --- UNCHANGED: Core Room Lifecycle Logic ---
+function handleLeaveRoom(socket) {
+    const userSocketInfo = userSockets[socket.id];
+    if (!userSocketInfo || !socket.user) return;
+    const { user, roomId } = userSocketInfo;
     
-    // --- STEP 1: FORCE LEAVE FROM ALL PREVIOUS ROOMS ---
-    // Socket.IO keeps a Set of rooms the socket is in. The first one is always its own ID.
-    const currentSocketRooms = Array.from(socket.rooms);
-    for (const oldRoomId of currentSocketRooms) {
-        // We iterate through every room this socket is subscribed to.
-        // We skip leaving the room that is the socket's own personal ID.
-        if (oldRoomId !== socket.id) {
-            console.log(`User ${user.displayName} is currently in room ${oldRoomId}. Forcing leave.`);
-            // Use Socket.IO's native leave method.
-            socket.leave(oldRoomId);
-            // Run our master cleanup logic for the old room.
-            await processUserLeave(socket, oldRoomId);
+    // If a timer already exists for this user, do nothing.
+    if (reconnectionTimers[user.id]) return;
+    
+    console.log(`[Disconnect] User ${user.displayName} disconnected. Starting grace period timer for room ${roomId}.`);
+    reconnectionTimers[user.id] = setTimeout(() => {
+        console.log(`[Grace Period Expired] Processing full leave for ${user.displayName}.`);
+        processUserLeave(socket, roomId);
+        delete reconnectionTimers[user.id];
+    }, RECONNECTION_GRACE_PERIOD);
+}
+
+// This handles the new 'leaveRoom' event from the client. It's an intentional action.
+async function handleIntentionalLeave(socket, roomId) {
+    if (!socket.user) return;
+    const user = socket.user;
+
+    // A user leaving is a definitive action. CANCEL any grace period timer.
+    if (reconnectionTimers[user.id]) {
+        clearTimeout(reconnectionTimers[user.id]);
+        delete reconnectionTimers[user.id];
+    }
+    console.log(`[Intentional Leave] User ${user.displayName} has chosen to leave room ${roomId}.`);
+    await processUserLeave(socket, roomId);
+}
+
+// This is the single, authoritative cleanup function.
+async function processUserLeave(socket, roomId) {
+    const room = rooms[roomId];
+    const user = socket.user;
+    if (!room || !user || !room.listeners[user.id]) {
+        // If the user isn't in this room's listener list, there's nothing to do.
+        return;
+    }
+
+    console.log(`[Cleanup] Processing leave for ${user.displayName} from room ${roomId}`);
+    
+    const wasHost = room.hostUserId === user.id;
+
+    // Remove user from all state tracking
+    delete room.listeners[user.id];
+    delete userSockets[socket.id];
+    delete userToRoomMap[user.id];
+    socket.leave(roomId);
+
+    // Broadcast the leave message
+    io.to(roomId).emit("newChatMessage", {
+        system: true,
+        text: `${user.displayName} has left the vibe.`,
+    });
+
+    // Handle Host Migration
+    const remainingListeners = Object.values(room.listeners);
+    if (wasHost && remainingListeners.length > 0) {
+        const newHost = remainingListeners[0];
+        room.hostUserId = newHost.user.id;
+        await supabase.from("rooms").update({ host_user_id: newHost.user.id }).eq("id", roomId);
+        
+        const newHostSocket = io.sockets.sockets.get(newHost.socketId);
+        if (newHostSocket) {
+            newHostSocket.emit("hostAssigned");
+            newHostSocket.emit("newChatMessage", { system: true, text: "👑 You are now the host of this room!" });
+            newHostSocket.broadcast.to(roomId).emit("newChatMessage", { system: true, text: `👑 ${newHost.user.displayName} is now the host.` });
         }
     }
+
+    // Update user lists for remaining clients
+    const updatedUserList = generateUserList(room);
+    io.to(roomId).emit("updateUserList", updatedUserList);
+    io.to(roomId).emit("updateListenerCount", updatedUserList.length);
     
-    // --- STEP 2: PROCEED WITH JOINING THE NEW ROOM ---
-    const { data: newRoomData } = await supabase.from('rooms').select('id, slug').eq('slug', roomSlug).single();
-    if (!newRoomData) {
-        return socket.emit('roomNotFound');
+    // Handle room deletion if it's now empty
+   const finalListenerCount = Object.keys(room.listeners).length;
+
+if (finalListenerCount === 0) {
+    // Only set a deletion timer if one isn't already running.
+    if (!room.deletionTimer) {
+        console.log(`[Room Teardown] Room ${roomId} is now empty. Starting deletion timer.`);
+        room.deletionTimer = setTimeout(async () => {
+            // Final check: Is the room still in the global list and STILL empty?
+            if (rooms[roomId] && Object.keys(rooms[roomId].listeners).length === 0) {
+                if (room.songEndTimer) clearTimeout(room.songEndTimer);
+                if (room.syncInterval) clearInterval(room.syncInterval);
+                
+                // Perform the deletion
+                await supabase.from("rooms").delete().eq("id", roomId);
+                delete rooms[roomId];
+                
+                console.log(`[Room Teardown] Room ${roomId} has been deleted.`);
+                broadcastLobbyData();
+            }
+        }, 30 * 1000); // 30-second timer
+    }
+}
+// ALWAYS broadcast the lobby data after a user leaves so the count updates.
+broadcastLobbyData();
+}
+
+// This is the new, streamlined join handler.
+async function handleJoinRoom(socket, roomSlug) {
+    const user = socket.user;
+
+    // This is a definitive action. Cancel any pending leave timer from a previous disconnect.
+    if (reconnectionTimers[user.id]) {
+        console.log(`[Join Override] User ${user.displayName} is joining a room. Cancelling pending leave timer.`);
+        clearTimeout(reconnectionTimers[user.id]);
+        delete reconnectionTimers[user.id];
+    }
+
+    // Find the user's previous room using our authoritative map.
+    const oldRoomId = userToRoomMap[user.id];
+    const { data: newRoomData } = await supabase.from('rooms').select('id').eq('slug', roomSlug).single();
+    if (!newRoomData) return socket.emit('roomNotFound');
+    const newRoomId = newRoomData.id.toString();
+
+    // If the user is switching to a DIFFERENT room, force an immediate leave from the old one.
+    if (oldRoomId && oldRoomId !== newRoomId) {
+        console.log(`[Room Switch] Forcing user ${user.displayName} to leave ${oldRoomId} before joining ${newRoomId}`);
+        await processUserLeave(socket, oldRoomId);
     }
     
-    const roomIdToJoin = newRoomData.id.toString();
-    let room = rooms[roomIdToJoin];
-
-    if (!room) {
-        // Hydration logic (unchanged)
+    // --- From here, the join logic is standard and safe ---
+    const roomIdToJoin = newRoomId;
+    if (!rooms[roomIdToJoin]) {
+        // Standard hydration logic...
         const { data: roomData, error: roomError } = await supabase.from('rooms').select('*, vibes(*)').eq('id', roomIdToJoin).single();
         if (roomError || !roomData) return socket.emit('roomNotFound');
         const { data: dbTracks } = await supabase.from('playlist_tracks').select('*').eq('room_id', roomIdToJoin).order('position_in_queue');
         const completePlaylist = (dbTracks || []).map(track => ({ ...track, url: `https://www.youtube.com/watch?v=${track.video_id}` }));
-        
         rooms[roomIdToJoin] = {
-            id: roomIdToJoin, slug: roomData.slug, name: roomData.name, vibe: roomData.vibes,
+            id: roomIdToJoin, slug: roomSlug, name: roomData.name, vibe: roomData.vibes,
             hostUserId: roomData.host_user_id, nowPlayingIndex: roomData.now_playing_index,
             playlist: completePlaylist, listeners: {}, suggestions: [],
             nowPlaying: null, songEndTimer: null, deletionTimer: null, isPlaying: false,
         };
-        room = rooms[roomIdToJoin];
     }
     
-    // The rest of the join logic is now safe to execute
-    const isReconnecting = !!reconnectionTimers[user.id];
-    if (isReconnecting) {
-        clearTimeout(reconnectionTimers[user.id]);
-        delete reconnectionTimers[user.id];
-    }
-    if (room.deletionTimer) {
-        clearTimeout(room.deletionTimer);
-        room.deletionTimer = null;
-    }
+    let room = rooms[roomIdToJoin];
 
-    socket.join(roomIdToJoin); // Natively join the new room
-    room.listeners[user.id] = { socketId: socket.id, user: user };
+    // Don't re-add if they're already there (covers a simple reload scenario)
+    if (!room.listeners[user.id]) {
+        socket.join(roomIdToJoin);
+        userToRoomMap[user.id] = roomIdToJoin;
+        room.listeners[user.id] = { socketId: socket.id, user: user };
+        io.to(roomIdToJoin).emit("newChatMessage", { system: true, text: `${user.displayName} has joined the vibe.` });
+    }
+    
     userSockets[socket.id] = { user: user, roomId: roomIdToJoin };
-
-    let isNewHost = false;
+    
+    // Host assignment logic
     if (Object.keys(room.listeners).length === 1 && room.hostUserId !== user.id) {
         room.hostUserId = user.id;
-        isNewHost = true;
         await supabase.from("rooms").update({ host_user_id: user.id }).eq("id", roomIdToJoin);
     }
-
-    const isHost = room.hostUserId === user.id;
-
-    if (room.nowPlayingIndex !== -1 && !room.nowPlaying && room.playlist.length > 0) {
-        playTrackAtIndex(roomIdToJoin, room.nowPlayingIndex, false);
-    }
     
-    socket.emit("roomState", getSanitizedRoomState(room, isHost, user));
-    if (isNewHost) socket.emit("newChatMessage", { system: true, text: "👑 You are now the host of this room!" });
-    if (room.nowPlaying) socket.emit("newSongPlaying", getAuthoritativeNowPlaying(room));
-
-    if (!isReconnecting) {
-        io.to(roomIdToJoin).emit("newChatMessage", { system: true, text: `${user.displayName} has joined the vibe.` });
-        const userList = generateUserList(room);
-        io.to(roomIdToJoin).emit("updateUserList", userList);
-        io.to(roomIdToJoin).emit("updateListenerCount", userList.length);
-        broadcastLobbyData();
-    } else {
-        io.to(roomIdToJoin).emit("updateUserList", generateUserList(room));
-    }
+    // Standard state emission
+    socket.emit("roomState", getSanitizedRoomState(room, room.hostUserId === user.id, user));
+    const userList = generateUserList(room);
+    io.to(roomIdToJoin).emit("updateUserList", userList);
+    io.to(roomIdToJoin).emit("updateListenerCount", userList.length);
+    broadcastLobbyData();
 }
 
-// --- UNCHANGED: Core Room Lifecycle Logic ---
-async function processUserLeave(socket, roomId) {
-  const room = rooms[roomId];
-  if (!room || !socket.user || !room.listeners[socket.user.id]) return;
-  const user = socket.user;
-  const wasHost = room.hostUserId === user.id;
-  delete room.listeners[user.id];
-  delete userSockets[socket.id];
-  io.to(roomId).emit("newChatMessage", {
-    system: true,
-    text: `${user.displayName} has left the vibe.`,
-  });
-  const remainingListeners = Object.values(room.listeners);
-  if (wasHost && remainingListeners.length > 0) {
-    const newHost = remainingListeners[0];
-    room.hostUserId = newHost.user.id;
-    await supabase
-      .from("rooms")
-      .update({ host_user_id: newHost.user.id })
-      .eq("id", roomId);
-    const newHostSocket = io.sockets.sockets.get(newHost.socketId);
-    if (newHostSocket) {
-      newHostSocket.emit("hostAssigned");
-      newHostSocket.emit("newChatMessage", {
-        system: true,
-        text: "👑 You are now the host of this room!",
-      });
-      newHostSocket.broadcast
-        .to(roomId)
-        .emit("newChatMessage", {
-          system: true,
-          text: `👑 ${newHost.user.displayName} is now the host.`,
-        });
-    }
-  }
-  const updatedUserList = generateUserList(room);
-  io.to(roomId).emit("updateUserList", updatedUserList);
-  io.to(roomId).emit("updateListenerCount", updatedUserList.length);
-  if (remainingListeners.length === 0) {
-    room.deletionTimer = setTimeout(async () => {
-      if (rooms[roomId] && Object.keys(rooms[roomId].listeners).length === 0) {
-        if (room.songEndTimer) clearTimeout(room.songEndTimer);
-        if (room.syncInterval) clearInterval(room.syncInterval);
-        await supabase.from("rooms").delete().eq("id", roomId);
-        delete rooms[roomId];
-        broadcastLobbyData();
-      }
-    }, 30 * 1000);
-  }
-  broadcastLobbyData();
-}
-
-// In backend/server.js
-
-// In backend/server.js
-
-function handleLeaveRoom(socket) {
-    const userSocketInfo = userSockets[socket.id];
-    if (!userSocketInfo) return;
-
-    const { user, roomId } = userSocketInfo;
-    
-    // This function now ONLY starts the timer. It does NOT pause or alter the
-    // room's playback state in any way. The "radio station" keeps playing.
-    reconnectionTimers[user.id] = setTimeout(() => {
-        // This code runs only if the user does NOT reconnect in time.
-        console.log(`Grace period expired for ${user.displayName}. Processing full leave.`);
-        processUserLeave(socket, roomId); // The original, correct cleanup logic
-        delete reconnectionTimers[user.id];
-    }, RECONNECTION_GRACE_PERIOD);
-}
 
 // --- MODIFIED: Music Handlers Now Interact with DB ---
 // In backend/server.js
@@ -400,43 +423,52 @@ async function handleAddYouTubeTrack(socket, roomId, url) {
     const isHost = socket.user.id === room.hostUserId;
 
     try {
-        // This is the ONE and ONLY slow, full metadata fetch.
-        // We use `-f bestaudio` to ensure `info.url` is a direct audio stream.
-        const fullInfo = await ytDlpExec(url, { dumpSingleJson: true, format: "bestaudio" });
+        // --- THE MEMORY CRASH FIX ---
+        // We add two critical flags to yt-dlp to prevent it from loading huge playlists.
+        // 1. `noPlaylist`: If the URL is a single video in a playlist, this flag
+        //    tells yt-dlp to ONLY get that single video.
+        // 2. `playlistItems`: If the URL is a playlist, this flag limits the
+        //    download to the first 10 items. This prevents memory overflow.
+        const fullInfo = await ytDlpExec(url, { 
+            dumpSingleJson: true,
+            noPlaylist: true,      // Add this line
+            playlistItems: '1-10'  // Add this line
+        });
+        // --- END OF FIX ---
         
         let tracksToProcess = fullInfo.entries ? fullInfo.entries : [fullInfo];
 
-        const completeTrackObjects = tracksToProcess.filter(info => info && info.id).map(info => ({
+        // The rest of the logic is now safe because `tracksToProcess` will never be huge.
+        const trackObjects = tracksToProcess.filter(info => info && info.id).map(info => ({
             videoId: info.id,
             name: info.title,
             artist: info.uploader || info.channel,
             albumArt: info.thumbnails?.pop()?.url || "/assets/placeholder.svg",
             duration_ms: info.duration * 1000,
-            url: info.url, // This is now the DIRECT, PLAYABLE audio stream URL.
         }));
 
         if (isHost) {
-            const currentPlaylistSize = room.playlist.length;
-            const tracksForDb = completeTrackObjects.map((track, index) => ({
+            const tracksForDb = trackObjects.map((track, index) => ({
                 room_id: roomId, added_by_user_id: socket.user.id, video_id: track.videoId,
                 name: track.name, artist: track.artist, album_art_url: track.albumArt,
-                duration_ms: track.duration_ms, position_in_queue: currentPlaylistSize + index,
+                duration_ms: track.duration_ms, position_in_queue: room.playlist.length + index,
             }));
-
             const { data: newDbTracks, error } = await supabase.from('playlist_tracks').insert(tracksForDb).select();
             if (error) throw error;
             
-            const finalTracks = newDbTracks.map((dbTrack, index) => ({ ...completeTrackObjects[index], ...dbTrack }));
-            room.playlist.push(...finalTracks);
+            const finalTracks = newDbTracks.map(dbTrack => ({
+                ...trackObjects.find(t => t.videoId === dbTrack.video_id),
+                id: dbTrack.id,
+                albumArt: dbTrack.album_art_url
+            }));
 
-            if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
-                playTrackAtIndex(roomId, 0);
-            } else {
-                io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
-            }
-        } else {
-            const suggestions = completeTrackObjects.map((track) => ({ 
-                ...track, 
+            room.playlist.push(...finalTracks);
+            io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
+            if (room.nowPlayingIndex === -1) playTrackAtIndex(roomId, 0);
+
+        } else { // Guest Suggestion
+            const suggestions = trackObjects.map((track) => ({
+                ...track,
                 suggestionId: `sugg_${Date.now()}_${Math.random()}`,
                 suggester: { id: socket.user.id, name: socket.user.displayName }
             }));
@@ -444,8 +476,13 @@ async function handleAddYouTubeTrack(socket, roomId, url) {
             io.to(roomId).emit("suggestionsUpdated", room.suggestions);
         }
     } catch (e) {
-        console.error("yt-dlp error or DB error:", e);
-        socket.emit("newChatMessage", { system: true, text: "Sorry, that link could not be processed." });
+        // A specific error can occur if a playlist is empty or unavailable, which is now safe to ignore.
+        if (e.stderr && e.stderr.includes('This playlist is empty')) {
+             socket.emit("newChatMessage", { system: true, text: "This playlist appears to be empty." });
+        } else {
+             console.error("yt-dlp error or DB error:", e);
+             socket.emit("newChatMessage", { system: true, text: "Sorry, that link could not be processed." });
+        }
     }
 }
 
@@ -514,51 +551,54 @@ async function handleDeleteTrack(socket, { roomId, indexToDelete }) {
 
 // In backend/server.js
 
-async function playTrackAtIndex(roomId, index, shouldBroadcast = true) {
+async function playTrackAtIndex(roomId, index) {
     const room = rooms[roomId];
     if (!room) return;
+
+    if (room.songEndTimer) clearTimeout(room.songEndTimer);
+    if (room.syncInterval) clearInterval(room.syncInterval);
     
     if (index < 0 || index >= room.playlist.length) {
-        // Stop playback logic (unchanged and correct)
+        room.nowPlaying = null; isPlaying = false; room.nowPlayingIndex = -1;
+        await supabase.from('rooms').update({ now_playing_index: -1 }).eq('id', roomId);
+        io.to(roomId).emit("newSongPlaying", null);
         return;
     }
     
     let track = room.playlist[index];
     if (!track) return;
-
-    // --- RESILIENCE FIX ---
-    // If the track is missing a URL (meaning it was just hydrated from DB after a restart),
-    // we do a one-time, fast fetch to get a fresh URL.
-    if (!track.url) {
-        const playableUrl = await getPlayableUrl(track.video_id);
-        if (!playableUrl) {
-            io.to(roomId).emit("newChatMessage", { system: true, text: `Skipping "${track.name}" (unavailable).` });
-            return playNextSong(roomId);
-        }
-        // Update the in-memory object with the fresh URL for next time.
-        track.url = playableUrl;
-    }
-    // --- END OF FIX ---
-
-    // Now, we are guaranteed to have a playable track object.
-    room.nowPlayingIndex = index;
-    await supabase.from('rooms').update({ now_playing_index: index }).eq('id', roomId);
-
-    if (room.songEndTimer) clearTimeout(room.songEndTimer);
-    if (room.syncInterval) clearInterval(room.syncInterval);
     
+    // --- The Simple Rule: ALWAYS get a fresh URL right before playing. ---
+    // This is the SINGLE ~5-second load.
+    const playableUrl = await getPlayableUrl(track.video_id);
+    if (!playableUrl) {
+        io.to(roomId).emit("newChatMessage", { system: true, text: `Skipping "${track.name}" (unavailable).` });
+        return playNextSong(roomId);
+    }
+    
+    // Update server state.
+    room.nowPlayingIndex = index;
     room.nowPlaying = { track: track, startTime: Date.now(), position: 0 };
     room.isPlaying = true;
-
-    if (shouldBroadcast) {
-        io.to(roomId).emit("newSongPlaying", getAuthoritativeNowPlaying(room));
-        broadcastLobbyData();
-        io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
-    }
     
+    // Set new server timers.
     room.songEndTimer = setTimeout(() => playNextSong(roomId), track.duration_ms + 1500);
-    room.syncInterval = setInterval(() => { if (room.isPlaying) io.to(roomId).emit("syncPulse", getAuthoritativeNowPlaying(room)); }, SYNC_INTERVAL);
+    room.syncInterval = setInterval(() => { 
+        if (room && room.isPlaying) io.to(roomId).emit("syncPulse", getAuthoritativeNowPlaying(room)); 
+    }, SYNC_INTERVAL);
+    
+    // --- The Golden Rule: Broadcast ONE complete payload to EVERYONE. ---
+    const payload = {
+        ...getAuthoritativeNowPlaying(room),
+        url: playableUrl
+    };
+    
+    console.log(`[Playback] Broadcasting new song "${track.name}" to room ${roomId}.`);
+    io.to(roomId).emit("newSongPlaying", payload);
+    io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
+    broadcastLobbyData();
 }
+
 
 
 // --- UNCHANGED: All remaining helper functions ---
@@ -700,42 +740,35 @@ async function handleSearchYouTube(socket, { query }) {
 }
 function playNextSong(roomId) {
     const room = rooms[roomId];
-    // Guard clause: Do nothing if the room doesn't exist or the playlist is empty.
-    if (!room || room.playlist.length === 0) {
-        return;
-    }
+    if (!room) return;
 
-    // Calculate the next index.
     let nextIndex = room.nowPlayingIndex + 1;
-
-    // --- THE LOOPING LOGIC ---
-    // If the next index is past the end of the playlist, loop back to the start.
+    // Loop back to the start if the playlist ends.
     if (nextIndex >= room.playlist.length) {
-        console.log(`Playlist ended in room ${roomId}. Looping back to start.`);
         nextIndex = 0;
     }
-
     playTrackAtIndex(roomId, nextIndex);
 }
+
 function playPrevSong(roomId) {
   const room = rooms[roomId];
-  if (room) playTrackAtIndex(roomId, room.nowPlayingIndex - 1);
+  if (room && room.nowPlayingIndex > 0) {
+      playTrackAtIndex(roomId, room.nowPlayingIndex - 1);
+  }
 }
 const getAuthoritativeNowPlaying = (room) => {
-  if (!room || !room.nowPlaying) return null;
-  const authoritativeState = {
-    ...room.nowPlaying,
-    isPlaying: room.isPlaying,
-    serverTimestamp: Date.now(),
-    nowPlayingIndex: room.nowPlayingIndex,
-  };
-  if (room.isPlaying) {
-    authoritativeState.position = Date.now() - authoritativeState.startTime;
-  }
-  return authoritativeState;
+    if (!room || !room.nowPlaying) return null;
+
+    const authoritativeState = {
+        track: room.nowPlaying.track,
+        isPlaying: room.isPlaying,
+        position: room.isPlaying ? (Date.now() - room.nowPlaying.startTime) : room.nowPlaying.position,
+        serverTimestamp: Date.now(),
+        nowPlayingIndex: room.nowPlayingIndex,
+    };
+    return authoritativeState;
 };
 // In backend/server.js
-
 async function handleApproveSuggestion(socket, { roomId, suggestionId }) {
     const room = rooms[roomId];
     if (!room || socket.user.id !== room.hostUserId) return;
@@ -746,40 +779,28 @@ async function handleApproveSuggestion(socket, { roomId, suggestionId }) {
     const [approvedSuggestion] = room.suggestions.splice(suggestionIndex, 1);
     const { suggestionId: sid, suggester, ...trackData } = approvedSuggestion;
     
-    const currentPlaylistSize = room.playlist.length;
-    
-    // --- THE FIX ---
-    // 1. We remove the `.single()` which was causing the crash.
-    //    `insert()` will now reliably return an array of the inserted rows.
-    const { data: newDbTracks, error } = await supabase.from('playlist_tracks').insert({
-        room_id: roomId,
-        added_by_user_id: suggester.id,
-        video_id: trackData.videoId,
-        name: trackData.name,
-        artist: trackData.artist,
-        album_art_url: trackData.albumArt,
-        duration_ms: trackData.duration_ms,
-        position_in_queue: currentPlaylistSize,
-    }).select(); // We get back an array, e.g., [{...}]
+    try {
+        const { data: newDbTrack, error } = await supabase.from('playlist_tracks').insert({
+            room_id: roomId, added_by_user_id: suggester.id, video_id: trackData.videoId,
+            name: trackData.name, artist: trackData.artist, album_art_url: trackData.albumArt,
+            duration_ms: trackData.duration_ms, position_in_queue: room.playlist.length,
+        }).select().single();
 
-    // 2. We add error handling and safely get the first (and only) item from the array.
-    if (error || !newDbTracks || newDbTracks.length === 0) {
-        console.error("Error saving approved suggestion to DB:", error);
-        // Put the suggestion back in the list if the database save fails.
+        if (error) throw error;
+        
+        // --- The Thumbnail Fix ---
+        // Create the final object for memory with the correct `albumArt` key.
+        const finalTrackObject = { ...trackData, id: newDbTrack.id };
+        room.playlist.push(finalTrackObject);
+
+        io.to(roomId).emit("suggestionsUpdated", room.suggestions);
+        io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
+
+        if (room.nowPlayingIndex === -1) playTrackAtIndex(roomId, 0);
+
+    } catch (dbError) {
+        console.error("Failed to approve suggestion due to DB error:", dbError);
         room.suggestions.splice(suggestionIndex, 0, approvedSuggestion);
-        return; // Stop execution
-    }
-    const newDbTrack = newDbTracks[0];
-    // --- END OF FIX ---
-
-    // Now we can safely proceed.
-    room.playlist.push({ ...trackData, ...newDbTrack });
-
-    io.to(roomId).emit("suggestionsUpdated", room.suggestions);
-    io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
-
-    if (room.nowPlayingIndex === -1) {
-        playTrackAtIndex(roomId, 0);
     }
 }
 
@@ -802,41 +823,22 @@ function handleHostPlaybackChange(socket, data) {
     const room = rooms[data.roomId];
     if (!room || socket.user.id !== room.hostUserId || !room.nowPlaying) return;
 
-    // --- THE FIX: PART 2 ---
-    // ALWAYS clear the old timers when the host makes a change.
-    if (room.songEndTimer) clearTimeout(room.songEndTimer);
-    if (room.syncInterval) clearInterval(room.syncInterval);
-    // --- END OF FIX ---
-
-    if (data.position !== undefined) { // This block handles SEEKING
+    // Update the server's master state based on the host's action.
+    if (data.position !== undefined) { // SEEK action
         room.nowPlaying.position = data.position;
         room.nowPlaying.startTime = Date.now() - data.position;
-        room.isPlaying = true; // Seeking implies we want to be playing
-
-        // --- THE FIX: PART 3 ---
-        // Calculate the NEW remaining duration and set a NEW master timer.
-        const remainingDuration = room.nowPlaying.track.duration_ms - data.position;
-        room.songEndTimer = setTimeout(() => playNextSong(data.roomId), remainingDuration + 1500);
-        // --- END OF FIX ---
-
-    } else { // This block handles PLAY/PAUSE
+        room.isPlaying = true; // Seeking implies playing.
+    } else { // PLAY/PAUSE action
         room.isPlaying = data.isPlaying;
         if (room.isPlaying) {
             room.nowPlaying.startTime = Date.now() - room.nowPlaying.position;
-            const remainingDuration = room.nowPlaying.track.duration_ms - room.nowPlaying.position;
-            room.songEndTimer = setTimeout(() => playNextSong(data.roomId), remainingDuration + 1500);
         } else {
-            // If we pause, we need to save the exact position
             room.nowPlaying.position = Date.now() - room.nowPlaying.startTime;
         }
     }
-
-    // Restart the sync pulse if we are playing
-    if (room.isPlaying) {
-        room.syncInterval = setInterval(() => { if (room.isPlaying) io.to(data.roomId).emit("syncPulse", getAuthoritativeNowPlaying(room)); }, SYNC_INTERVAL);
-    }
-
-    // Broadcast the change to all clients immediately.
+    
+    // Broadcast the NEW, authoritative state to EVERYONE in the room.
+    console.log(`[Host Action] Broadcasting new playback state for room ${data.roomId}`);
     io.to(data.roomId).emit("syncPulse", getAuthoritativeNowPlaying(room));
 }
 
