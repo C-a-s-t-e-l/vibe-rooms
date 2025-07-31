@@ -35,7 +35,7 @@ document.addEventListener("DOMContentLoaded", () => {
     currentSongDuration = 0;
   let currentRoomName = "Vibe Room"; // Default name
   let isSeekingOrLoading = false;
-  let playAfterUnlock = false;
+  // let playAfterUnlock = false;
   let currentSuggestions = [];
   let currentPlaylistState = { playlist: [], nowPlayingIndex: -1 };
   
@@ -47,17 +47,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
 
   // --- AUDIO UNLOCK LOGIC ---
-  function unlockAudio() {
+ function unlockAudio() {
     if (audioContextUnlocked) return;
-    audioContextUnlocked = true;
-    audioUnlockOverlay.style.display = "none";
-    if (playAfterUnlock) {
-      nativeAudioPlayer
-        .play()
-        .catch((e) => console.error("Autoplay after unlock failed:", e));
-      playAfterUnlock = false;
-    }
-  }
+    
+    // Hide the overlay immediately for good UX.
+    audioUnlockOverlay.style.display = 'none';
+    
+    // This is the key change. Instead of just playing, we ask the server
+    // for the absolute latest timing information before we start.
+    console.log("Audio unlocked. Requesting fresh sync from server...");
+    socket.emit('requestFreshSync', { roomId: currentRoomId });
+}
   audioUnlockOverlay.addEventListener("click", unlockAudio);
 
   // --- INITIALIZE THE APP ---
@@ -132,31 +132,35 @@ document.addEventListener("DOMContentLoaded", () => {
       updatePlaylistUI(playlistState);
     });
 
-   socket.on("syncPulse", (data) => {
-    // --- THE FIX: PART 3 ---
-    // If we are the host OR if a critical load is in progress, IGNORE the pulse.
-    if (isHost || isSeekingOrLoading || !data || !data.track) {
+ socket.on("syncPulse", (data) => {
+    // DO NOT IGNORE if you are the host. Everyone obeys the server.
+    if (isSeekingOrLoading || !data || !data.track) {
         return;
     }
-    // --- END OF FIX ---
 
-    updatePlayPauseIcon(data.isPlaying);
     const latency = Date.now() - data.serverTimestamp;
     const correctedPosition = data.position + latency;
     const clientPosition = nativeAudioPlayer.currentTime * 1000;
     const drift = Math.abs(correctedPosition - clientPosition);
 
-    if (drift > 350) { // Keep this threshold reasonable
+    if (drift > 500) { // A 500ms threshold is a good balance.
+        console.log(`Syncing player. Drift was ${Math.round(drift)}ms.`);
         nativeAudioPlayer.currentTime = correctedPosition / 1000;
-        if (data.isPlaying) {
-            startProgressTimer(Date.now() - correctedPosition, data.track.duration_ms);
-        }
     }
+    
     if (data.isPlaying && nativeAudioPlayer.paused) {
-        nativeAudioPlayer.play().catch((e) => console.error("Sync play failed", e));
+        nativeAudioPlayer.play().catch(e => {});
     } else if (!data.isPlaying && !nativeAudioPlayer.paused) {
         nativeAudioPlayer.pause();
     }
+});
+
+// ADD THIS NEW LISTENER for the powerful sync event.
+socket.on("forceStateSync", (data) => {
+    // This event is for major changes like seek/pause from the host.
+    // It forces the client to obey the server's state completely.
+    console.log("Received force state sync from server.");
+    syncPlayerState(data);
 });
     socket.on("hostAssigned", () => {
       isHost = true;
@@ -247,6 +251,12 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("chat-input").value = "";
       }
     });
+    const leaveVibeBtn = document.getElementById("leave-vibe-btn");
+leaveVibeBtn.addEventListener('click', (e) => {
+    e.preventDefault(); // Stop the link from navigating immediately
+    socket.emit('leaveRoom', { roomId: currentRoomId }); // Tell the server we are LEAVING
+    window.location.href = '/'; // NOW we can navigate
+});
 
     const handleLinkSubmit = (e) => {
       e.preventDefault();
@@ -503,53 +513,49 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function syncPlayerState(nowPlaying) {
     clearInterval(nowPlayingInterval);
-    playAfterUnlock = false;
     isSeekingOrLoading = true;
 
-    // --- THE FIX FOR THE GHOST TRACK ---
-    // This block runs when the playlist becomes empty.
     if (!nowPlaying || !nowPlaying.track) {
         updateNowPlayingUI(null, false);
-        // We must be explicit: PAUSE the player, THEN clear its source.
-        nativeAudioPlayer.pause();
-        nativeAudioPlayer.src = "";
+        nativeAudioPlayer.pause(); nativeAudioPlayer.src = "";
         isSeekingOrLoading = false;
         return;
     }
-    // --- END OF FIX ---
 
-    const { track, isPlaying, position, serverTimestamp } = nowPlaying;
+    const { track, isPlaying, position, serverTimestamp, url } = nowPlaying;
+
+    // This will now correctly find 'track.albumArt' and fix the thumbnail issue.
     updateNowPlayingUI(nowPlaying, isPlaying);
 
-    const isNewTrack = nativeAudioPlayer.src !== track.url;
-    if (isNewTrack) {
-        nativeAudioPlayer.src = track.url;
-    }
-
-    nativeAudioPlayer.onloadedmetadata = () => {
+    const syncAndAttemptPlay = () => {
         const latency = Date.now() - serverTimestamp;
-        const correctedPosition = position + latency;
-        const targetPositionMs = Math.min(correctedPosition, track.duration_ms);
+        const correctedPosition = Math.min(position + latency, track.duration_ms);
+        nativeAudioPlayer.currentTime = correctedPosition / 1000;
         
-        nativeAudioPlayer.currentTime = targetPositionMs / 1000;
-
         if (isPlaying) {
-            if (audioContextUnlocked) {
-                nativeAudioPlayer.play().catch((e) => console.error("Autoplay prevented:", e));
-            } else {
-                playAfterUnlock = true;
-                audioUnlockOverlay.style.display = "grid";
+            const playPromise = nativeAudioPlayer.play();
+            if (playPromise) {
+                playPromise.then(() => {
+                    audioUnlockOverlay.style.display = 'none';
+                }).catch(error => {
+                    if (error.name === 'NotAllowedError') {
+                        audioUnlockOverlay.style.display = 'grid';
+                    }
+                });
             }
+        } else {
+            nativeAudioPlayer.pause();
         }
         isSeekingOrLoading = false;
     };
-
-    if (!isNewTrack) {
-        const latency = Date.now() - serverTimestamp;
-        const correctedPosition = position + latency;
-        nativeAudioPlayer.currentTime = correctedPosition / 1000;
-        if(isPlaying && nativeAudioPlayer.paused) nativeAudioPlayer.play();
-        isSeekingOrLoading = false;
+    
+    // The server ALWAYS sends a URL with a new song.
+    if (url) {
+        nativeAudioPlayer.src = url;
+        nativeAudioPlayer.addEventListener('canplay', syncAndAttemptPlay, { once: true });
+    } else {
+        // This is a fallback for re-syncing the same song (e.g., on reload)
+        syncAndAttemptPlay();
     }
 }
   function startProgressTimer(startTime, duration_ms) {
