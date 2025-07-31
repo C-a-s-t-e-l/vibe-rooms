@@ -9,7 +9,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const seconds = totalSeconds % 60;
     return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
   };
- const socket = io("https://your-backend-app-name.onrender.com", {
+const socket = io("https://vibes-fqic.onrender.com", {
   withCredentials: true,
 });
   const currentRoomSlug = window.location.pathname.split("/").pop();

@@ -71,7 +71,7 @@ passport.use(
 );
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
-app.use(express.static(path.join(__dirname, "../frontend/public")));
+app.use(express.static(path.join(__dirname, "../dist")));
 
 const ensureAuthenticated = (req, res, next) => {
   if (req.isAuthenticated()) return next();
@@ -105,7 +105,7 @@ app.get("/room/:roomSlug", ensureAuthenticated, async (req, res) => {
   // Check memory first if a room with this slug is already active
   const activeRoom = Object.values(rooms).find((r) => r.slug === roomSlug);
   if (activeRoom) {
-    return res.sendFile(path.join(__dirname, "../frontend/views", "room.html"));
+   return res.sendFile(path.join(__dirname, "../dist", "room.html"));
   }
 
   // If not in memory, check the database
@@ -115,10 +115,10 @@ app.get("/room/:roomSlug", ensureAuthenticated, async (req, res) => {
   }
 
   // Not found in either
-  res.status(404).sendFile(path.join(__dirname, "../frontend/views", "404.html"));
+  res.status(404).sendFile(path.join(__dirname, "../dist", "404.html"));
 });
 app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "../frontend/views", "index.html"));
+ res.sendFile(path.join(__dirname, "../dist", "index.html"));
 });
 io.engine.use(sessionMiddleware);
 io.engine.use(passport.initialize());

@@ -1,7 +1,7 @@
 // public/js/main.js
 
 document.addEventListener("DOMContentLoaded", () => {
-  const socket = io("https://your-backend-app-name.onrender.com");
+  const socket = io("https://vibes-fqic.onrender.com");
 
   // --- Core DOM Elements ---
   const navActions = document.querySelector(".nav-actions");
