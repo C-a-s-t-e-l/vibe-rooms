@@ -1,20 +1,10 @@
 services:
-  # This name MUST match the name of your service on Render.
-  # Check your Render dashboard URL (e.g., dashboard.render.com/web/srv-c...)
-  # or its name (e.g., "vibes").
-  - type: web 
-    name: vibes-fqic # <-- IMPORTANT: Use your exact service name here
+  - type: web
+    name: vibes-fqic
     env: node
-    plan: free # or your current plan
+    plan: free
     buildCommand: "pip install yt-dlp && npm install"
     startCommand: "node backend/server.js"
     healthCheckPath: /
-    envVars:
-      - key: FFMPEG_PATH
-        value: /usr/bin/ffmpeg
-      
-
-# This adds a pre-build step to install system packages
-previews:
-  - preDeploy:
-      - command: apt-get update && apt-get install -y ffmpeg
+    preDeploy:
+      command: "apt-get update && apt-get install -y ffmpeg"
