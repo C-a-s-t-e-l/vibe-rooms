@@ -1,0 +1,11 @@
+{
+  "ignore": {
+    "patterns": [
+      "// -- This is a list of patterns to ignore. -- //",
+      "// -- By default, Repomix likely ignores 'dist/'. -- //",
+      "// -- To override that default, we negate the pattern with a '!'. -- //",
+      
+      "!dist/"
+    ]
+  }
+}
