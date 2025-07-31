@@ -77,15 +77,23 @@ app.get("/api/user", (req, res) => {
   if (req.isAuthenticated()) res.json(req.user);
   else res.status(401).json({ message: "Not authenticated" });
 });
-app.get("/room/:roomId", ensureAuthenticated, (req, res) => {
-  const room = rooms[req.params.roomId];
-  if (room) {
-    res.sendFile(path.join(__dirname, "../frontend/views", "room.html"));
-  } else {
-    res
-      .status(404)
-      .sendFile(path.join(__dirname, "../frontend/views", "404.html"));
+app.get("/room/:roomSlug", ensureAuthenticated, async (req, res) => {
+  const { roomSlug } = req.params;
+
+  // Check memory first if a room with this slug is already active
+  const activeRoom = Object.values(rooms).find((r) => r.slug === roomSlug);
+  if (activeRoom) {
+    return res.sendFile(path.join(__dirname, "../frontend/views", "room.html"));
   }
+
+  // If not in memory, check the database
+  const { data } = await supabase.from("rooms").select("id").eq("slug", roomSlug).single();
+  if (data) {
+    return res.sendFile(path.join(__dirname, "../frontend/views", "room.html"));
+  }
+
+  // Not found in either
+  res.status(404).sendFile(path.join(__dirname, "../frontend/views", "404.html"));
 });
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/views", "index.html"));
@@ -109,7 +117,7 @@ io.on("connection", (socket) => {
     broadcastLobbyData();
   });
   socket.on("createRoom", (roomData) => handleCreateRoom(socket, roomData));
-  socket.on("joinRoom", (roomId) => handleJoinRoom(socket, roomId));
+ socket.on("joinRoom", (roomIdentifier) => handleJoinRoom(socket, roomIdentifier));
 
   // --- FIX START ---
   // The crucial listener for intentional leaves was missing from your provided file.
@@ -148,6 +156,17 @@ io.on("connection", (socket) => {
 
 // --- Handler Functions ---
 
+function slugify(text) {
+  return text
+    .toString()
+    .toLowerCase()
+    .replace(/\s+/g, "-") // Replace spaces with -
+    .replace(/[^\w\-]+/g, "") // Remove all non-word chars
+    .replace(/\-\-+/g, "-") // Replace multiple - with single -
+    .replace(/^-+/, "") // Trim - from start of text
+    .replace(/-+$/, ""); // Trim - from end of text
+}
+
 const generateUserList = (room) => {
   if (!room) return [];
   return Object.values(room.listeners).map((listener) => ({
@@ -185,10 +204,38 @@ const getSanitizedRoomState = (room, isHost, user) => {
 
 // --- FIX START ---
 // Replacing the entire handleJoinRoom function with the corrected logic flow.
-async function handleJoinRoom(socket, roomId) {
-  const room = rooms[roomId];
+async function handleJoinRoom(socket, roomSlug) {
+  // The identifier is the slug from the URL. Find room in memory by slug.
+  let room = Object.values(rooms).find((r) => r.slug === roomSlug);
+
+  // If the room is not in memory, load it from the database.
   if (!room) {
-    socket.emit("roomNotFound"); // Let client know room is gone
+    console.log(`Room with slug "${roomSlug}" not in memory. Querying DB.`);
+    const { data: dbRoomData, error } = await supabase.from("rooms").select("*, vibes(name, type)").eq("slug", roomSlug).single();
+
+    if (error || !dbRoomData) {
+      console.error(`Error fetching room or room not found for slug ${roomSlug}:`, error);
+      socket.emit("roomNotFound");
+      return;
+    }
+
+    // Room exists in DB, so instantiate it in our in-memory `rooms` object.
+    const roomId = dbRoomData.id.toString();
+    rooms[roomId] = {
+      id: roomId,
+      slug: dbRoomData.slug,
+      name: dbRoomData.name,
+      vibe: dbRoomData.vibes ? { name: dbRoomData.vibes.name, type: dbRoomData.vibes.type } : { name: "Unknown", type: "CUSTOM" },
+      hostUserId: dbRoomData.host_user_id,
+      listeners: {}, playlist: [], nowPlayingIndex: -1, suggestions: [],
+      nowPlaying: null, songEndTimer: null, deletionTimer: null, isPlaying: false,
+    };
+    room = rooms[roomId]; // Now `room` is the in-memory object.
+    console.log(`Loaded room "${room.name}" (${room.id}) from DB.`);
+  }
+
+  if (!room) {
+    socket.emit("roomNotFound");
     return;
   }
 
@@ -201,15 +248,14 @@ async function handleJoinRoom(socket, roomId) {
     delete reconnectionTimers[user.id];
   }
 
-  // Revive room if it was about to be deleted
+  // Revive room if it was about to be a deleted
   if (room.deletionTimer) {
-    console.log(
-      `User ${user.displayName} joined an empty room. Cancelling deletion timer.`
-    );
+    console.log(`User ${user.displayName} joined an empty room. Cancelling deletion timer.`);
     clearTimeout(room.deletionTimer);
     room.deletionTimer = null;
   }
 
+  const roomId = room.id;
   socket.join(roomId);
   room.listeners[user.id] = { socketId: socket.id, user: user };
   userSockets[socket.id] = { user: user, roomId };
@@ -221,13 +267,8 @@ async function handleJoinRoom(socket, roomId) {
     if (room.hostUserId !== user.id) {
       room.hostUserId = user.id;
       isNewHost = true;
-      await supabase
-        .from("rooms")
-        .update({ host_user_id: user.id })
-        .eq("id", roomId);
-      console.log(
-        `Assigning ${user.displayName} as the new host of revived room ${roomId}.`
-      );
+      await supabase.from("rooms").update({ host_user_id: user.id }).eq("id", roomId);
+      console.log(`Assigning ${user.displayName} as the new host of revived room ${roomId}.`);
     }
   }
 
@@ -274,7 +315,7 @@ async function getLiveVibes() {
     id: v.id,
     name: v.name,
     type: v.type,
-    count: v.room_count,
+    count: v.room_count || 0, // Ensure count is always a number
   }));
   return vibesWithCounts.sort((a, b) => b.count - a.count);
 }
@@ -536,15 +577,31 @@ async function handleCreateRoom(socket, roomData) {
       return socket.emit("error", { message: "Could not process vibe." });
     }
 
-    const { data: newRoom, error: roomError } = await supabase
-      .from("rooms")
-      .insert({
-        name: roomName,
-        host_user_id: socket.user.id,
-        vibe_id: vibeId,
-      })
-      .select("id")
-      .single();
+    // --- NEW SLUG LOGIC ---
+    let baseSlug = slugify(roomName);
+    let finalSlug = baseSlug;
+    let isUnique = false;
+    let attempts = 0;
+
+    // Keep trying new slugs until we find a unique one
+    while (!isUnique && attempts < 10) {
+      const { data } = await supabase.from("rooms").select("id").eq("slug", finalSlug).single();
+      if (!data) {
+        // If no room is found with this slug, it's unique
+        isUnique = true;
+      } else {
+        // If the slug is taken, add a random suffix and try again
+        finalSlug = `${baseSlug}-${Math.random().toString(36).substring(2, 7)}`;
+      }
+      attempts++;
+    }
+
+    if (!isUnique) {
+      return socket.emit("error", { message: "Could not create a unique room link. Please try a different name." });
+    }
+    // --- END OF NEW SLUG LOGIC ---
+
+    const { data: newRoom, error: roomError } = await supabase.from("rooms").insert({ name: roomName, host_user_id: socket.user.id, vibe_id: vibeId, now_playing_index: -1, slug: finalSlug }).select("id, slug").single();
 
     if (roomError) {
       console.error("Error creating room in DB:", roomError);
@@ -555,6 +612,7 @@ async function handleCreateRoom(socket, roomData) {
 
     rooms[roomId] = {
       id: roomId,
+      slug: newRoom.slug,
       name: roomName,
       vibe: vibe,
       hostUserId: socket.user.id,
@@ -567,11 +625,9 @@ async function handleCreateRoom(socket, roomData) {
       deletionTimer: null,
       isPlaying: false,
     };
+    console.log(`Room ${roomId} created in DB and memory by ${socket.user.displayName}`);
 
-    console.log(
-      `Room ${roomId} created in DB and memory by ${socket.user.displayName}`
-    );
-    socket.emit("roomCreated", { roomId });
+    socket.emit("roomCreated", { roomId, slug: newRoom.slug });
     broadcastLobbyData();
   } catch (error) {
     console.error("An unexpected error occurred in handleCreateRoom:", error);
@@ -668,6 +724,7 @@ const getPublicRoomsData = () =>
     name: r.name,
     listenerCount: Object.keys(r.listeners).length,
     nowPlaying: r.nowPlaying,
+    slug: r.slug,
     vibe: r.vibe,
   }));
 function handleRejectSuggestion(socket, { roomId, suggestionId }) {
