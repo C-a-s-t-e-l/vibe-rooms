@@ -11,6 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 const socket = io("https://vibes-fqic.onrender.com", {
   withCredentials: true,
+  transports: ["websocket"],
 });
   const currentRoomSlug = window.location.pathname.split("/").pop();
 let currentRoomId = null;

@@ -140,6 +140,7 @@ io.use((socket, next) => {
     socket.user = user;
     next();
   } else {
+    // This is what's happening now: the connection is rejected
     next(new Error("unauthorized"));
   }
 });
