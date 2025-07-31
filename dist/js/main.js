@@ -47,7 +47,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     navActions.innerHTML = `
             <p class="nav-link">Welcome, ${user.displayName}!</p>
-            <a href="/logout" class="btn btn-secondary">Log Out</a>
+            <a href="https://vibes-fqic.onrender.com/logout" class="btn btn-secondary">Log Out</a>
         `;
 
     // --- ALL LOGGED-IN LOGIC NOW LIVES INSIDE THIS FUNCTION SCOPE ---
