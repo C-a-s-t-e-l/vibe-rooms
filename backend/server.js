@@ -10,7 +10,9 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const session = require("express-session");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
-const ytDlpExec = require("yt-dlp-exec");
+// --- THIS IS THE CORRECTED IMPORT ---
+const ytDlpExec = require("youtube-dl-exec");
+// --- END OF CORRECTION ---
 
 const app = express();
 const server = http.createServer(app);
@@ -406,10 +408,10 @@ function handleLeaveRoom(socket) {
   }, RECONNECTION_GRACE_PERIOD);
 }
 
-// --- CLEANED UP AND DEBUG-ENHANCED HANDLERS ---
+// --- CORRECTED AND DEBUG-ENHANCED HANDLERS ---
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
-  console.log(`[DEBUG] Starting yt-dlp search for: "${query}"`);
+  console.log(`[DEBUG] Starting youtube-dl-exec search for: "${query}"`);
   try {
     const options = { dumpJson: true };
     if (process.env.PROXY_URL) {
@@ -417,17 +419,18 @@ async function handleSearchYouTube(socket, { query }) {
     }
     const command = `ytsearch10:${query}`;
     const result = await ytDlpExec(command, options);
+
     console.log(
-      `[DEBUG] yt-dlp STDOUT for "${query}":\n---start---\n${result.stdout}\n---end---`
+      `[DEBUG] youtube-dl-exec STDOUT for "${query}":\n---start---\n${result.stdout}\n---end---`
     );
     if (result.stderr) {
       console.log(
-        `[DEBUG] yt-dlp STDERR for "${query}":\n---start---\n${result.stderr}\n---end---`
+        `[DEBUG] youtube-dl-exec STDERR for "${query}":\n---start---\n${result.stderr}\n---end---`
       );
     }
     if (!result.stdout || result.stdout.trim() === "") {
       console.log(
-        `[INFO] yt-dlp search for "${query}" returned no results in stdout.`
+        `[INFO] youtube-dl-exec search for "${query}" returned no results in stdout.`
       );
       socket.emit("searchYouTubeResults", []);
       return;
@@ -448,7 +451,7 @@ async function handleSearchYouTube(socket, { query }) {
     socket.emit("searchYouTubeResults", videoResults);
   } catch (error) {
     console.error(
-      `[CRITICAL] yt-dlp search crashed for query "${query}":`,
+      `[CRITICAL] youtube-dl-exec search crashed for query "${query}":`,
       error
     );
     socket.emit("searchYouTubeResults", []);
@@ -459,7 +462,7 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
   if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
-  console.log(`[DEBUG] Starting yt-dlp info fetch for: "${url}"`);
+  console.log(`[DEBUG] Starting youtube-dl-exec info fetch for: "${url}"`);
   try {
     const options = { dumpJson: true, noPlaylist: true };
     if (process.env.PROXY_URL) {
@@ -467,11 +470,11 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     }
     const result = await ytDlpExec(url, options);
     console.log(
-      `[DEBUG] yt-dlp STDOUT for "${url}":\n---start---\n${result.stdout}\n---end---`
+      `[DEBUG] youtube-dl-exec STDOUT for "${url}":\n---start---\n${result.stdout}\n---end---`
     );
     if (result.stderr) {
       console.log(
-        `[DEBUG] yt-dlp STDERR for "${url}":\n---start---\n${result.stderr}\n---end---`
+        `[DEBUG] youtube-dl-exec STDERR for "${url}":\n---start---\n${result.stderr}\n---end---`
       );
     }
     const video = JSON.parse(result.stdout);
@@ -508,7 +511,7 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     }
   } catch (e) {
     console.error(
-      `[CRITICAL] yt-dlp crash in handleAddYouTubeTrack for URL "${url}":`,
+      `[CRITICAL] youtube-dl-exec crash in handleAddYouTubeTrack for URL "${url}":`,
       e
     );
     socket.emit("addTrackFailed", { url: url });
