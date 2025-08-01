@@ -185,28 +185,20 @@ async function handleSearchYouTube(socket, { query }) {
     const command = `ytsearch10:${query}`;
     const options = {
       dumpJson: true,
-      cookies: "cookies.txt", // Keep cookies to satisfy YouTube
+      cookies: "cookies.txt",
+      // --- THE FINAL FIX ---
+      // Adding the Referer header completes our browser disguise.
+      // This will satisfy the proxy's anti-bot checks and prevent the timeout.
+      addHeader: ["Referer:https://www.youtube.com/"],
     };
-
-    // --- THIS IS THE FINAL FIX ---
-    // We pass the proxy as an environment variable, which uses a more standard
-    // connection method that is less likely to be blocked by the proxy provider.
     if (process.env.PROXY_URL) {
-      options.env = {
-        HTTPS_PROXY: process.env.PROXY_URL,
-        HTTP_PROXY: process.env.PROXY_URL,
-      };
+      options.proxy = process.env.PROXY_URL;
     }
-    // We NO LONGER use the options.proxy flag.
-    // --- END OF FIX ---
-
     const result = await ytDlpExec(command, options);
-
     if (!result.stdout || result.stdout.trim() === "") {
       socket.emit("searchYouTubeResults", []);
       return;
     }
-
     const videos = result.stdout
       .trim()
       .split("\n")
@@ -232,23 +224,16 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     const options = {
       dumpJson: true,
       noPlaylist: true,
-      cookies: "cookies.txt", // Keep cookies
+      cookies: "cookies.txt",
+      // --- THE FINAL FIX ---
+      // Adding the Referer here as well for consistency.
+      addHeader: ["Referer:https://www.youtube.com/"],
     };
-
-    // --- THIS IS THE FINAL FIX ---
-    // Applying the same environment variable strategy here.
     if (process.env.PROXY_URL) {
-      options.env = {
-        HTTPS_PROXY: process.env.PROXY_URL,
-        HTTP_PROXY: process.env.PROXY_URL,
-      };
+      options.proxy = process.env.PROXY_URL;
     }
-    // --- END OF FIX ---
-
     const result = await ytDlpExec(url, options);
-
     const video = JSON.parse(result.stdout);
-
     const track = {
       videoId: video.id,
       name: video.title || "Untitled",
@@ -290,7 +275,7 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   }
 }
 
-// ... all other handler functions (playTrackAtIndex, etc.) are here ...
+// ... all other handler functions are unchanged ...
 
 const generateUserList = (room) => {
   if (!room) return [];
@@ -301,7 +286,6 @@ const generateUserList = (room) => {
     isHost: listener.user.id === room.hostUserId,
   }));
 };
-
 const getSanitizedRoomState = (room, isHost, user) => {
   if (!room) return null;
   const userList = generateUserList(room);
@@ -326,7 +310,6 @@ const getSanitizedRoomState = (room, isHost, user) => {
   safeRoomState.userList = userList;
   return safeRoomState;
 };
-
 async function handleJoinRoom(socket, slug) {
   let room = Object.values(rooms).find((r) => r.slug === slug);
   if (!room) {
@@ -406,7 +389,6 @@ async function handleJoinRoom(socket, slug) {
     io.to(roomId).emit("updateUserList", generateUserList(room));
   }
 }
-
 async function getLiveVibes() {
   const { data, error } = await supabase.rpc("get_live_vibe_counts");
   if (error) {
@@ -416,7 +398,6 @@ async function getLiveVibes() {
     .map((v) => ({ id: v.id, name: v.name, type: v.type, count: v.room_count }))
     .sort((a, b) => b.count - a.count);
 }
-
 async function broadcastLobbyData() {
   const [roomsData, vibes] = await Promise.all([
     getPublicRoomsData(),
@@ -424,7 +405,6 @@ async function broadcastLobbyData() {
   ]);
   io.emit("updateLobby", { rooms: roomsData, vibes });
 }
-
 async function processUserLeave(socket, roomId) {
   const room = rooms[roomId];
   if (!room || !socket.user || !room.listeners[socket.user.id]) {
@@ -477,7 +457,6 @@ async function processUserLeave(socket, roomId) {
   }
   broadcastLobbyData();
 }
-
 function handleLeaveRoom(socket) {
   const userSocketInfo = userSockets[socket.id];
   if (!userSocketInfo) return;
@@ -487,7 +466,6 @@ function handleLeaveRoom(socket) {
     delete reconnectionTimers[user.id];
   }, RECONNECTION_GRACE_PERIOD);
 }
-
 async function findOrCreateVibe(vibeData) {
   let { data: existingVibe, error: findError } = await supabase
     .from("vibes")
@@ -513,7 +491,6 @@ async function findOrCreateVibe(vibeData) {
   }
   return null;
 }
-
 async function handleCreateRoom(socket, roomData) {
   const { roomName, vibe } = roomData;
   if (!roomName || !vibe || !vibe.name || !vibe.type) {
@@ -559,7 +536,6 @@ async function handleCreateRoom(socket, roomData) {
     broadcastLobbyData();
   } catch (error) {}
 }
-
 function playTrackAtIndex(roomId, index) {
   const room = rooms[roomId];
   if (!room) return;
@@ -592,13 +568,11 @@ function playTrackAtIndex(roomId, index) {
     }
   }, SYNC_INTERVAL);
 }
-
 function playNextSong(roomId) {
   const room = rooms[roomId];
   if (!room) return;
   playTrackAtIndex(roomId, room.nowPlayingIndex + 1);
 }
-
 function playPrevSong(roomId) {
   const room = rooms[roomId];
   if (!room) return;
@@ -606,7 +580,6 @@ function playPrevSong(roomId) {
     playTrackAtIndex(roomId, room.nowPlayingIndex - 1);
   }
 }
-
 const getAuthoritativeNowPlaying = (room) => {
   if (!room || !room.nowPlaying) return null;
   const authoritativeState = {
@@ -620,7 +593,6 @@ const getAuthoritativeNowPlaying = (room) => {
   }
   return authoritativeState;
 };
-
 function handleApproveSuggestion(socket, { roomId, suggestionId }) {
   const room = rooms[roomId];
   if (!room || socket.user.id !== room.hostUserId) return;
@@ -642,12 +614,10 @@ function handleApproveSuggestion(socket, { roomId, suggestionId }) {
   }
   io.to(roomId).emit("suggestionsUpdated", room.suggestions);
 }
-
 const getSanitizedPlaylist = (room) => ({
   playlist: room.playlist,
   nowPlayingIndex: room.nowPlayingIndex,
 });
-
 const getPublicRoomsData = () =>
   Object.values(rooms).map((r) => ({
     id: r.id,
@@ -657,7 +627,6 @@ const getPublicRoomsData = () =>
     nowPlaying: r.nowPlaying,
     vibe: r.vibe,
   }));
-
 function handleRejectSuggestion(socket, { roomId, suggestionId }) {
   const room = rooms[roomId];
   if (!room || socket.user.id !== room.hostUserId) return;
@@ -666,7 +635,6 @@ function handleRejectSuggestion(socket, { roomId, suggestionId }) {
   );
   io.to(roomId).emit("suggestionsUpdated", room.suggestions);
 }
-
 function handleHostPlaybackChange(socket, data) {
   const room = rooms[data.roomId];
   if (!room || socket.user.id !== room.hostUserId || !room.nowPlaying) return;
@@ -704,7 +672,6 @@ function handleHostPlaybackChange(socket, data) {
   }
   io.to(data.roomId).emit("syncPulse", getAuthoritativeNowPlaying(room));
 }
-
 function handleDeleteTrack(socket, { roomId, indexToDelete }) {
   const room = rooms[roomId];
   if (!room || socket.user.id !== room.hostUserId) return;
@@ -720,7 +687,6 @@ function handleDeleteTrack(socket, { roomId, indexToDelete }) {
     io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
   }
 }
-
 function handleSendMessage(socket, msg) {
   if (!socket.user) return;
   const message = {
