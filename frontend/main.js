@@ -1,12 +1,7 @@
-// public/js/main.js
+// frontend/main.js
 
 document.addEventListener("DOMContentLoaded", () => {
-  // +++ CHANGE START: Define backend URL and update socket connection +++
- const BACKEND_URL = "https://vibes-fqic.onrender.com";
-  // CHANGE THIS LINE to use the full URL.
-  // This tells Socket.IO where to connect AND where to fetch the client script from.
-  const socket = io(BACKEND_URL, { withCredentials: true }); 
-  // +++ CHANGE END +++
+  const BACKEND_URL = "https://vibes-fqic.onrender.com";
 
   // --- Core DOM Elements ---
   const navActions = document.querySelector(".nav-actions");
@@ -26,34 +21,78 @@ document.addEventListener("DOMContentLoaded", () => {
   const customVibeInput = document.getElementById("custom-vibe-input");
   const modalCreateBtn = document.getElementById("modal-create-btn");
 
-  // --- Check Authentication Status on Page Load ---
-  // +++ CHANGE: Update fetch URL to point to backend +++
-  fetch(`${BACKEND_URL}/api/user`, { credentials: 'include' })
-    .then((res) => {
-      if (!res.ok) return Promise.reject("Not authenticated");
-      return res.json();
-    })
-    .then((user) => {
-      if (user && user.id) {
-        setupLoggedInUI(user);
-      } else {
-        throw new Error("User not found or not authenticated");
+  // --- JWT AUTHENTICATION FLOW ---
+
+  // 1. Check for a token in the URL query parameters (from Google OAuth redirect).
+  const urlParams = new URLSearchParams(window.location.search);
+  const tokenFromUrl = urlParams.get('token');
+
+  if (tokenFromUrl) {
+    // If a token is found, save it to localStorage.
+    localStorage.setItem('vibe_token', tokenFromUrl);
+    // Clean the URL so the token isn't visible to the user.
+    window.history.replaceState({}, document.title, "/");
+  }
+
+  // 2. Retrieve the token from localStorage.
+  const userToken = localStorage.getItem('vibe_token');
+
+  if (userToken) {
+    // 3. If a token exists, try to fetch the user's profile.
+    fetch(`${BACKEND_URL}/api/user`, {
+      headers: {
+        // Include the token in the Authorization header.
+        'Authorization': `Bearer ${userToken}`
       }
     })
+    .then(res => {
+        if (!res.ok) {
+            // If the token is invalid or expired, clear it and reject the promise.
+            localStorage.removeItem('vibe_token');
+            return Promise.reject("Not authenticated");
+        }
+        return res.json();
+    })
+    .then(user => {
+        if (user && user.id) {
+            // If user is successfully fetched, set up the logged-in UI.
+            setupLoggedInUI(user, userToken);
+        }
+    })
     .catch(() => {
-      loggedOutView.style.display = "block";
-      loggedInView.style.display = "none";
+        // If fetch fails for any reason, show the logged-out view.
+        loggedOutView.style.display = "block";
+        loggedInView.style.display = "none";
     });
+  } else {
+    // 4. If no token exists, immediately show the logged-out view.
+    loggedOutView.style.display = "block";
+    loggedInView.style.display = "none";
+  }
 
-  function setupLoggedInUI(user) {
+
+  // This function is now only called AFTER a user is successfully authenticated via JWT.
+  function setupLoggedInUI(user, token) {
     loggedOutView.style.display = "none";
     loggedInView.style.display = "block";
 
-    // REVERT: Logout link is relative. Vercel will proxy it.
+    // The logout link needs to be handled by the frontend now to clear the token
     navActions.innerHTML = `
-            <p class="nav-link">Welcome, ${user.displayName}!</p>
-            <a href="/logout" class="btn btn-secondary">Log Out</a>
-        `;
+        <p class="nav-link">Welcome, ${user.displayName}!</p>
+        <button id="logout-btn" class="btn btn-secondary">Log Out</button>
+    `;
+
+    document.getElementById('logout-btn').addEventListener('click', () => {
+        localStorage.removeItem('vibe_token');
+        window.location.href = '/'; // Redirect to home page
+    });
+
+    // --- SOCKET.IO CONNECTION WITH JWT ---
+    const socket = io(BACKEND_URL, {
+        auth: {
+            token: token // Send the JWT for socket authentication
+        }
+    });
 
     // --- ALL LOGGED-IN LOGIC NOW LIVES INSIDE THIS FUNCTION SCOPE ---
 
@@ -124,48 +163,45 @@ document.addEventListener("DOMContentLoaded", () => {
       updateRoomsList(roomsToRender);
     }
 
-   function updateRoomsList(rooms) {
-  if (!roomsGrid) return;
-  roomsGrid.innerHTML = "";
-  if (rooms.length === 0) {
-    noRoomsMessage.style.display = "block";
-  } else {
-    noRoomsMessage.style.display = "none";
-    rooms.forEach((room) => {
-      const roomCard = document.createElement("div");
-      roomCard.className = "room-card";
-      const albumArtUrl =
-        room.nowPlaying && room.nowPlaying.track
-          ? room.nowPlaying.track.albumArt
-          : "/placeholder.svg";
-      if (room.nowPlaying && room.nowPlaying.track) {
-        roomCard.style.backgroundImage = `url(${albumArtUrl})`;
-      }
-      roomCard.innerHTML = `
-        <img src="${albumArtUrl}" alt="${room.name}" class="album-art"/>
-        <div class="room-card-info">
-            <h3 class="room-name">${room.name}</h3>
-            <div class="room-card-footer">
-                <div class="room-listeners">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                    <span>${room.listenerCount} listeners</span>
-                </div>
-                <div class="status-indicator">
-                    <div class="status-dot"></div><span>LIVE</span>
-                </div>
-            </div>
-        </div>
-      `;
-      
-      // THIS IS THE LINE THAT IS CHANGED
-      roomCard.addEventListener("click", () => {
-        window.location.href = `/room/${room.slug}`; 
-      });
-
-      roomsGrid.appendChild(roomCard);
-    });
-  }
-}
+    function updateRoomsList(rooms) {
+        if (!roomsGrid) return;
+        roomsGrid.innerHTML = "";
+        if (rooms.length === 0) {
+            noRoomsMessage.style.display = "block";
+        } else {
+            noRoomsMessage.style.display = "none";
+            rooms.forEach((room) => {
+                const roomCard = document.createElement("div");
+                roomCard.className = "room-card";
+                const albumArtUrl =
+                    room.nowPlaying && room.nowPlaying.track
+                        ? room.nowPlaying.track.albumArt
+                        : "/placeholder.svg";
+                if (room.nowPlaying && room.nowPlaying.track) {
+                    roomCard.style.backgroundImage = `url(${albumArtUrl})`;
+                }
+                roomCard.innerHTML = `
+                    <img src="${albumArtUrl}" alt="${room.name}" class="album-art"/>
+                    <div class="room-card-info">
+                        <h3 class="room-name">${room.name}</h3>
+                        <div class="room-card-footer">
+                            <div class="room-listeners">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                <span>${room.listenerCount} listeners</span>
+                            </div>
+                            <div class="status-indicator">
+                                <div class="status-dot"></div><span>LIVE</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                roomCard.addEventListener("click", () => {
+                    window.location.href = `/room/${room.slug}`;
+                });
+                roomsGrid.appendChild(roomCard);
+            });
+        }
+    }
 
     // --- Attach all Event Listeners for Logged-In state ---
 
@@ -209,8 +245,8 @@ document.addEventListener("DOMContentLoaded", () => {
       renderFilteredRooms();
     });
     socket.on("roomCreated", ({ slug }) => {
-  window.location.href = `/room/${slug}`;
-});
+        window.location.href = `/room/${slug}`;
+    });
 
     // Initial fetch of rooms
     socket.emit("getRooms");

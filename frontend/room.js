@@ -1,13 +1,22 @@
-// public/js/room.js
+// frontend/room.js
 
 document.addEventListener("DOMContentLoaded", () => {
-  // +++ CHANGE START: Define backend URL and update socket connection +++
   const BACKEND_URL = "https://vibes-fqic.onrender.com";
-  // CHANGE THIS LINE to use the full URL.
-  // This tells Socket.IO where to connect AND where to fetch the client script from.
-  const socket = io(BACKEND_URL, { withCredentials: true }); 
 
-  // +++ CHANGE END +++
+  // --- RETRIEVE JWT AND AUTHENTICATE SOCKET CONNECTION ---
+  const userToken = localStorage.getItem("vibe_token");
+
+  if (!userToken) {
+    // If there's no token, the user shouldn't be on this page. Redirect them.
+    window.location.href = "/";
+    return;
+  }
+
+  const socket = io(BACKEND_URL, {
+    auth: {
+      token: userToken,
+    },
+  });
 
   const formatTime = (ms) => {
     if (!ms || isNaN(ms)) return "0:00";
@@ -17,8 +26,8 @@ document.addEventListener("DOMContentLoaded", () => {
     return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
   };
 
- const currentRoomSlug = window.location.pathname.split("/").pop();
- let currentRoomId = null;
+  const currentRoomSlug = window.location.pathname.split("/").pop();
+  let currentRoomId = null;
   let nowPlayingInterval;
   let isHost = false,
     audioContextUnlocked = false,
@@ -31,6 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const nativeAudioPlayer = document.getElementById("native-audio-player");
   const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7Z"/></svg>`;
   const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
+
   function unlockAudio() {
     if (audioContextUnlocked) return;
     audioContextUnlocked = true;
@@ -42,23 +52,34 @@ document.addEventListener("DOMContentLoaded", () => {
       playAfterUnlock = false;
     }
   }
+
   audioUnlockOverlay.addEventListener("click", unlockAudio);
   setupSocketListeners();
   setupUIEventListeners();
   socket.emit("joinRoom", currentRoomSlug);
 
   function setupSocketListeners() {
+    socket.on("connect_error", (err) => {
+      // Handle authentication errors from the server
+      if (err.message.includes("unauthorized")) {
+        console.error("Authentication error: Invalid or expired token.");
+        // Token is bad, clear it and redirect to login
+        localStorage.removeItem("vibe_token");
+        window.location.href = "/";
+      }
+    });
+
     socket.on("roomState", (data) => {
       if (!data) {
         alert("This Vibe Room doesn't exist or has ended.");
         window.location.href = "/";
         return;
       }
+
       currentRoomId = data.id;
-
       document.title = data.name;
-
       isHost = data.isHost;
+
       const addVibeWrapper = document.getElementById("add-vibe-wrapper");
       addVibeWrapper.classList.toggle("is-host", isHost);
       addVibeWrapper.classList.toggle("is-guest", !isHost);
@@ -67,7 +88,6 @@ document.addEventListener("DOMContentLoaded", () => {
         .classList.toggle("is-guest", !isHost);
       document.getElementById("room-name-display").textContent = data.name;
 
-      // Update all UI elements from the initial state
       currentPlaylistState = data.playlistState || {
         playlist: [],
         nowPlayingIndex: -1,
@@ -75,7 +95,7 @@ document.addEventListener("DOMContentLoaded", () => {
       updatePlaylistUI(currentPlaylistState);
       currentSuggestions = data.suggestions || [];
       updateSuggestionsUI(currentSuggestions);
-      updateUserListUI(data.userList || []); // Use the user list from roomState
+      updateUserListUI(data.userList || []);
       document.getElementById("listener-count-display").textContent =
         data.listenerCount;
 
@@ -119,6 +139,7 @@ document.addEventListener("DOMContentLoaded", () => {
         nativeAudioPlayer.pause();
       }
     });
+
     socket.on("hostAssigned", () => {
       isHost = true;
       const addVibeWrapper = document.getElementById("add-vibe-wrapper");
@@ -127,33 +148,35 @@ document.addEventListener("DOMContentLoaded", () => {
       document
         .getElementById("host-controls-wrapper")
         .classList.remove("is-guest");
-
       updatePlaylistUI(currentPlaylistState);
       updateSuggestionsUI(currentSuggestions);
     });
+
     socket.on("suggestionsUpdated", (suggestions) => {
       currentSuggestions = suggestions;
       updateSuggestionsUI(suggestions);
     });
+
     socket.on("newChatMessage", (message) =>
       message.system
         ? renderSystemMessage(message.text)
         : renderChatMessage(message)
     );
+
     socket.on("searchYouTubeResults", (results) => {
       updateSearchResultsUI(results);
     });
+
     socket.on("updateUserList", (users) => {
       updateUserListUI(users);
     });
+
     socket.on("updateListenerCount", (count) => {
       document.getElementById("listener-count-display").textContent = count;
     });
   }
 
-  // ... (The rest of the file from setupUIEventListeners to the end is unchanged) ...
   function setupUIEventListeners() {
-    // Playback and chat listeners are unchanged...
     playPauseBtn.addEventListener("click", () => {
       if (!isHost || !nativeAudioPlayer.src) return;
       const newIsPlayingState = nativeAudioPlayer.paused;
@@ -211,7 +234,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const url = inputEl.value.trim();
       if (!url) return;
 
-      // Optimistic UI spinner
       if (isHost) {
         addSpinnerItem(document.getElementById("queue-list"));
       } else {
@@ -290,6 +312,7 @@ document.addEventListener("DOMContentLoaded", () => {
     clearInterval(nowPlayingInterval);
     if (isHost) socket.emit("skipTrack", { roomId: currentRoomId });
   };
+
   function updateSearchResultsUI(results, isLoading = false) {
     const resultsList = document.getElementById("search-results");
     resultsList.innerHTML = "";
@@ -351,15 +374,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const userCountDisplay = document.getElementById("user-count-display");
     userList.innerHTML = "";
     userCountDisplay.textContent = `(${users.length})`;
-
     users.sort((a, b) => b.isHost - a.isHost);
-
     users.forEach((user) => {
       const userItem = document.createElement("div");
       userItem.className = "user-list-item";
-
       const hostIcon = user.isHost ? '<span class="host-icon">👑</span>' : "";
-
       userItem.innerHTML = `
         <img src="${user.avatar}" alt="${user.displayName}">
         <span>${user.displayName}</span>
@@ -368,6 +387,7 @@ document.addEventListener("DOMContentLoaded", () => {
       userList.appendChild(userItem);
     });
   }
+
   function addSpinnerItem(listElement, text = "Loading...") {
     if (listElement.querySelector(".system-message"))
       listElement.innerHTML = "";
@@ -378,6 +398,7 @@ document.addEventListener("DOMContentLoaded", () => {
     spinnerItem.innerHTML = ` <span class="queue-item__number"> <svg class="spinner" viewBox="0 0 50 50"><circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle></svg> </span> <img src="/placeholder.svg" alt="loading" class="queue-item__art"> <div class="track-info"> <p>${text}</p> </div> `;
     listElement.appendChild(spinnerItem);
   }
+
   function updatePlaylistUI({ playlist, nowPlayingIndex }) {
     const queueList = document.getElementById("queue-list");
     queueList.innerHTML = "";
@@ -406,7 +427,7 @@ document.addEventListener("DOMContentLoaded", () => {
           )}</span>`;
       queueItemDiv.innerHTML = `<span class="queue-item__number">${
         index + 1
-      }</span> <img src="${item.albumArt || "/assets/placeholder.svg"}" alt="${
+      }</span> <img src="${item.albumArt || "/placeholder.svg"}" alt="${
         item.name
       }" class="queue-item__art"> <div class="track-info"> <p>${
         item.name
@@ -438,6 +459,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
   }
+
   function syncPlayerState(nowPlaying) {
     clearInterval(nowPlayingInterval);
     playAfterUnlock = false;
@@ -468,6 +490,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     };
   }
+
   function startProgressTimer(startTime, duration_ms) {
     clearInterval(nowPlayingInterval);
     const update = () => {
@@ -486,6 +509,7 @@ document.addEventListener("DOMContentLoaded", () => {
     nowPlayingInterval = setInterval(update, 500);
     update();
   }
+
   function updateNowPlayingUI(nowPlaying, isPlaying) {
     updatePlayPauseIcon(isPlaying);
     const artEl = document.getElementById("now-playing-art");
@@ -509,18 +533,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const { track } = nowPlaying;
     currentSongDuration = track.duration_ms;
     cardEl.classList.add("is-playing");
-    artEl.src = track.albumArt || "/assets/placeholder.svg";
+    artEl.src = track.albumArt || "/placeholder.svg";
     nameEl.textContent = track.name;
     artistEl.textContent = track.artist;
     bgEl.style.backgroundImage = `url('${track.albumArt}')`;
     totalTimeEl.textContent = formatTime(track.duration_ms);
   }
+
   function updatePlayPauseIcon(isPlaying) {
     playPauseBtn.innerHTML = isPlaying ? pauseIcon : playIcon;
     document
       .querySelector(".now-playing-card")
       .classList.toggle("is-playing", isPlaying);
   }
+
   function renderChatMessage(message) {
     const chatMessages = document.getElementById("chat-messages");
     const msgDiv = document.createElement("div");
@@ -536,6 +562,7 @@ document.addEventListener("DOMContentLoaded", () => {
     chatMessages.appendChild(msgDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
+
   function renderSystemMessage(text) {
     const chatMessages = document.getElementById("chat-messages");
     const p = document.createElement("p");
@@ -544,6 +571,7 @@ document.addEventListener("DOMContentLoaded", () => {
     chatMessages.appendChild(p);
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
+
   function updateSuggestionsUI(suggestions) {
     const suggestionsList = document.getElementById("suggestions-list");
     suggestionsList.innerHTML = "";
@@ -560,7 +588,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ? ` <div class="suggestion-controls"> <button class="suggestion-approve" title="Approve"> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg> </button> <button class="suggestion-reject" title="Reject"> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg> </button> </div> `
         : "";
       suggestionDiv.innerHTML = ` <img src="${
-        item.albumArt || "/assets/placeholder.svg"
+        item.albumArt || "/placeholder.svg"
       }" alt="${
         item.name
       }" class="queue-item__art"> <div class="track-info"> <p>${
