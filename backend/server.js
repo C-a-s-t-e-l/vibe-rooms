@@ -9,39 +9,8 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const session = require("express-session");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
-const play = require("play-dl");
+const ytDlpExec = require("yt-dlp-exec").default; // ADD THIS LINE
 
-try {
-  // A known-good client ID from YouTube Music web.
-  const clientID = "a5f5735c-4389-4773-a178-e86b09a0a09e";
-
-  console.log(`>>> Using hardcoded clientID: ${clientID}`);
-
-  // Construct the one-and-only config object for play.setToken
-  const finalConfig = {
-    youtube: {
-      client_id: clientID,
-      // ---> THIS IS THE FIX <---
-      // Add the missing 'cookie' property to prevent the 'split' error.
-      cookie: ""
-    },
-    // IMPORTANT: Add the fetch property with proxy here for all subsequent requests
-    fetch: {}
-  };
-
-  if (process.env.PROXY_URL) {
-    console.log(">>> Configuring play-dl with proxy for all subsequent requests.");
-    finalConfig.fetch.proxy = process.env.PROXY_URL;
-  }
-
-  // Call setToken ONLY ONCE with the complete configuration.
-  play.setToken(finalConfig);
-
-  console.log(">>> play-dl successfully configured.");
-
-} catch (e) {
-  console.error("!!!!!! FAILED TO CONFIGURE PLAY-DL !!!!!!", e.message);
-}
 
 const app = express();
 const server = http.createServer(app);
@@ -486,33 +455,34 @@ function handleLeaveRoom(socket) {
 
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
+
   try {
-    // Correctly structured options object
-    const searchOptions = {
-      limit: 10,
-      source: {
-        youtube: 'video'
-      }
+    const options = {
+      dumpJson: true, // Get metadata as JSON
     };
 
-    // If a proxy is configured, add it INSIDE the 'source' object
     if (process.env.PROXY_URL) {
-      searchOptions.source.proxy = process.env.PROXY_URL;
+      options.proxy = process.env.PROXY_URL;
     }
 
-    const searchResults = await play.search(query, searchOptions);
+    // yt-dlp syntax for searching and limiting to 10 results
+    const command = `ytsearch10:${query}`;
+    const result = await ytDlpExec(command, options);
 
-    const videoResults = searchResults.map(video => ({
+    // The output for a search is multiple JSON objects, one per line.
+    const videos = result.stdout.trim().split('\n').map(line => JSON.parse(line));
+
+    const videoResults = videos.map(video => ({
       videoId: video.id,
       title: video.title || "Untitled",
-      artist: video.channel ? video.channel.name : 'Unknown Artist',
-      thumbnail: video.thumbnails[0].url
+      artist: video.channel || 'Unknown Artist',
+      thumbnail: video.thumbnail // yt-dlp provides the best thumbnail directly
     }));
 
     socket.emit("searchYouTubeResults", videoResults);
 
   } catch (error) {
-    console.error(`play-dl search error for query "${query}":`, error.message);
+    console.error(`yt-dlp search error for query "${query}":`, error);
     socket.emit("searchYouTubeResults", []);
   }
 }
@@ -523,68 +493,54 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const isHost = socket.user.id === room.hostUserId;
 
   try {
-    // Correctly structured options object
-    const infoOptions = {
-      source: {
-        youtube: 'video'
-      }
+    const options = {
+      dumpJson: true,
+      noPlaylist: true, // We will handle playlists manually if needed
     };
-    
-    // If a proxy is configured, add it INSIDE the 'source' object
+
     if (process.env.PROXY_URL) {
-      infoOptions.source.proxy = process.env.PROXY_URL;
+      options.proxy = process.env.PROXY_URL;
     }
 
-    const info = await play.video_info(url, infoOptions);
-    
-    if (!info || !info.video_details) {
-      throw new Error(`URL did not resolve to a valid video: ${url}`);
-    }
+    const video = await ytDlpExec(url, options);
 
-    let videosToProcess = [];
-    if (info.playlist) {
-      socket.emit("newChatMessage", {
-        system: true,
-        text: `Processing playlist "${info.playlist.title}"...`,
-      });
-      videosToProcess = await info.playlist.all_videos();
-    } else {
-      videosToProcess.push(info.video_details);
-    }
-    
-    const tracksToAdd = videosToProcess.map(video => ({
+    const track = {
       videoId: video.id,
       name: video.title || "Untitled",
-      artist: video.channel ? video.channel.name : "Unknown Artist",
-      albumArt: video.thumbnails[0]?.url || "/placeholder.svg",
-      duration_ms: video.durationInSec * 1000,
-      url: video.url,
+      artist: video.channel || "Unknown Artist",
+      albumArt: video.thumbnail || "/placeholder.svg",
+      duration_ms: video.duration * 1000,
+      // We need to find a playable format. webm or m4a are common.
+      url: video.formats.find(f => f.format_id === '251' || f.format_id === '140')?.url || video.url,
       source: "youtube",
-    }));
+    };
+    
+    if (!track.url) {
+        throw new Error("No playable audio format found for this video.");
+    }
 
     if (isHost) {
-      room.playlist.push(...tracksToAdd);
+      room.playlist.push(track);
       if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
-        const startIndex = room.playlist.length - tracksToAdd.length;
-        playTrackAtIndex(roomId, startIndex);
+        playTrackAtIndex(roomId, room.playlist.length - 1);
       } else {
         io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
       }
     } else {
-      const suggestions = tracksToAdd.map(track => ({
+      const suggestion = {
         ...track,
         suggestionId: `sugg_${Date.now()}_${Math.random()}`,
         suggester: { id: socket.user.id, name: socket.user.displayName },
-      }));
-      room.suggestions.push(...suggestions);
+      };
+      room.suggestions.push(suggestion);
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
   } catch (e) {
-    console.error(`Error in handleAddYouTubeTrack for URL "${url}":`, e.message);
+    console.error(`yt-dlp error in handleAddYouTubeTrack for URL "${url}":`, e);
     socket.emit("addTrackFailed", { url: url });
     socket.emit("newChatMessage", {
       system: true,
-      text: "Sorry, that link could not be processed or is private.",
+      text: "Sorry, that link could not be processed, is private, or is not a valid video.",
     });
   }
 }
