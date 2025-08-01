@@ -235,7 +235,7 @@ const generateUserList = (room) => {
   return Object.values(room.listeners).map((listener) => ({
     id: listener.user.id,
     displayName: listener.user.displayName,
-    avatar: listener.user.photos[0].value,
+    avatar: listener.user.avatar, // <<< CHANGED THIS LINE
     isHost: listener.user.id === room.hostUserId,
   }));
 };
@@ -255,7 +255,7 @@ const getSanitizedRoomState = (room, isHost, user) => {
   safeRoomState.currentUser = {
     name: user.displayName,
     id: user.id,
-    avatar: user.photos[0].value,
+    avatar: user.avatar, // <<< CHANGED THIS LINE
   };
   safeRoomState.nowPlaying = getAuthoritativeNowPlaying(room);
   safeRoomState.playlistState = getSanitizedPlaylist(room);
@@ -864,17 +864,13 @@ function handleHostPlaybackChange(socket, data) {
 }
 function handleSendMessage(socket, msg) {
   if (!socket.user) return;
-  let avatarUrl = socket.user.photos[0].value;
-  if (avatarUrl.includes("?sz=")) {
-    avatarUrl = avatarUrl.replace(/\?sz=\d+$/, "?sz=128");
-  } else if (avatarUrl.includes("=s")) {
-    avatarUrl = avatarUrl.replace(/=s\d+.*$/, "=s128-c");
-  }
+  
+  // Logic to resize Google avatar is no longer needed as we store the direct URL
   const message = {
     text: msg.text,
     user: socket.user.displayName,
     userId: socket.user.id,
-    avatar: avatarUrl,
+    avatar: socket.user.avatar, // <<< CHANGED THIS LINE (and removed resizing logic)
   };
   io.to(msg.roomId).emit("newChatMessage", message);
 }
