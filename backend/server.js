@@ -438,7 +438,9 @@ async function handleSearchYouTube(socket, { query }) {
     console.error(`yt-dlp search error for query "${query}":`, error);
     socket.emit("searchYouTubeResults", []);
   }
-}async function handleSearchYouTube(socket, { query }) {
+}
+
+async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
   try {
     const options = { dumpJson: true };
@@ -447,10 +449,11 @@ async function handleSearchYouTube(socket, { query }) {
     }
     const command = `ytsearch10:${query}`;
     
-    // --- THIS IS THE FIX ---
-    // The library automatically finds the system 'yt-dlp'.
-    // We just pass the command and options.
-    const result = await ytDlpExec(command, options);
+    // --- THIS IS THE FINAL FIX ---
+    // The third argument is a special options object for the wrapper itself.
+    // We tell it the path to the executable is just 'yt-dlp',
+    // which the system will find in its PATH because of our pip install.
+    const result = await ytDlpExec(command, options, { path: 'yt-dlp' });
     // --- END OF FIX ---
 
     const videos = result.stdout.trim().split('\n').map(line => JSON.parse(line));
@@ -477,10 +480,9 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       options.proxy = process.env.PROXY_URL;
     }
     
-    // --- THIS IS THE FIX ---
-    // The library automatically finds the system 'yt-dlp'.
-    // We just pass the URL and options.
-    const video = await ytDlpExec(url, options);
+    // --- THIS IS THE FINAL FIX ---
+    // We do the same here for adding a track by URL.
+    const video = await ytDlpExec(url, options, { path: 'yt-dlp' });
     // --- END OF FIX ---
 
     const track = {
