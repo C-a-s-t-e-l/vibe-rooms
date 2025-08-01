@@ -486,7 +486,7 @@ async function handleSearchYouTube(socket, { query }) {
   }
 }
 
-aasync function handleAddYouTubeTrack(socket, { roomId, url }) {
+async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
   if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
