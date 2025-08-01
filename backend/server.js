@@ -185,13 +185,12 @@ async function handleSearchYouTube(socket, { query }) {
     const command = `ytsearch10:${query}`;
     const options = {
       dumpJson: true,
-      cookies: "cookies.txt", // Use the cookie file
+      cookies: "cookies.txt",
     };
 
     // --- THIS IS THE FINAL FIX ---
-    // Pass the proxy as an environment variable instead of a flag.
-    // This uses a more standard connection method that is less likely
-    // to be blocked by the proxy provider's firewall.
+    // The library's third argument is for process options, including environment variables.
+    // This is the standard way to tell a command-line tool to use a proxy.
     const execOptions = {};
     if (process.env.PROXY_URL) {
       execOptions.env = {
@@ -199,6 +198,7 @@ async function handleSearchYouTube(socket, { query }) {
         HTTP_PROXY: process.env.PROXY_URL,
       };
     }
+    // We NO LONGER pass the --proxy flag inside the 'options' object.
     // --- END OF FIX ---
 
     const result = await ytDlpExec(command, options, execOptions);
@@ -233,7 +233,7 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     const options = {
       dumpJson: true,
       noPlaylist: true,
-      cookies: "cookies.txt", // Use the cookie file
+      cookies: "cookies.txt",
     };
 
     // --- THIS IS THE FINAL FIX ---
