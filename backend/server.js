@@ -169,9 +169,7 @@ io.on("connection", (socket) => {
     handleHostPlaybackChange(socket, data)
   );
   socket.on("disconnect", () => handleLeaveRoom(socket));
-  socket.on("addYouTubeTrack", ({ roomId, url }) =>
-    handleAddYouTubeTrack(socket, roomId, url)
-  );
+  socket.on("addYouTubeTrack", (data) => handleAddYouTubeTrack(socket, data));
   socket.on("approveSuggestion", (data) =>
     handleApproveSuggestion(socket, data)
   );
@@ -231,18 +229,50 @@ const getSanitizedRoomState = (room, isHost, user) => {
 };
 
 async function handleJoinRoom(socket, slug) {
-  // Find the room in our in-memory object by its slug.
-  const room = Object.values(rooms).find(r => r.slug === slug);
+  // First, try to find the room in our fast in-memory object.
+  let room = Object.values(rooms).find(r => r.slug === slug);
 
+  // If the room isn't in memory, try to load it from the database.
+  // This makes the app resilient to server restarts.
   if (!room) {
-    // If the room isn't in memory (e.g., server restarted), we could fetch it from the DB.
-    // For now, we'll just say it's not found.
-    console.log(`Room with slug "${slug}" not found in memory.`);
-    socket.emit("roomNotFound");
-    return;
-  }
+    console.log(`Room with slug "${slug}" not found in memory. Checking database...`);
+    const { data: dbRoom, error } = await supabase
+      .from("rooms")
+      .select("*, vibe_id(name, type)") // Fetch room and its related vibe info
+      .eq("slug", slug)
+      .single();
 
-  // From this point on, we use the internal numeric room.id for socket.io rooms etc.
+    if (error || !dbRoom) {
+      console.error(`Error fetching room "${slug}" from DB or it does not exist.`, error);
+      socket.emit("roomNotFound");
+      return;
+    }
+
+    // Reconstruct the in-memory room object from the database record.
+    console.log(`Successfully loaded room "${dbRoom.name}" (Slug: ${slug}) from DB.`);
+    const roomId = dbRoom.id.toString();
+    
+    rooms[roomId] = {
+      id: roomId,
+      slug: dbRoom.slug,
+      name: dbRoom.name,
+      vibe: { name: dbRoom.vibe_id.name, type: dbRoom.vibe_id.type },
+      hostUserId: dbRoom.host_user_id,
+      listeners: {},
+      playlist: [], // A full implementation could also load the playlist from the DB here
+      nowPlayingIndex: -1,
+      suggestions: [],
+      nowPlaying: null,
+      songEndTimer: null,
+      deletionTimer: null,
+      isPlaying: false,
+    };
+    // Assign the newly created room to our local 'room' variable for the rest of this function.
+    room = rooms[roomId]; 
+  }
+  
+  // From here, the rest of the function uses the 'room' object, which is now guaranteed to exist.
+  // We use the numeric 'roomId' for internal Socket.IO operations.
   const roomId = room.id;
   const user = socket.user;
   const isReconnecting = !!reconnectionTimers[user.id];
@@ -255,9 +285,7 @@ async function handleJoinRoom(socket, slug) {
 
   // Revive room if it was about to be deleted
   if (room.deletionTimer) {
-    console.log(
-      `User ${user.displayName} joined an empty room ${room.slug}. Cancelling deletion timer.`
-    );
+    console.log(`User ${user.displayName} joined an empty room ${room.slug}. Cancelling deletion timer.`);
     clearTimeout(room.deletionTimer);
     room.deletionTimer = null;
   }
@@ -266,6 +294,7 @@ async function handleJoinRoom(socket, slug) {
   room.listeners[user.id] = { socketId: socket.id, user: user };
   userSockets[socket.id] = { user: user, roomId };
 
+  // --- Definitive Host Assignment Logic ---
   let isNewHost = false;
   if (Object.keys(room.listeners).length === 1) {
     if (room.hostUserId !== user.id) {
@@ -275,14 +304,14 @@ async function handleJoinRoom(socket, slug) {
         .from("rooms")
         .update({ host_user_id: user.id })
         .eq("id", roomId);
-      console.log(
-        `Assigning ${user.displayName} as the new host of revived room ${room.slug}.`
-      );
+      console.log(`Assigning ${user.displayName} as the new host of revived room ${room.slug}.`);
     }
   }
 
+  // Determine final host status *after* potential assignment
   const isHost = room.hostUserId === user.id;
 
+  // Send the initial state to the user *after* all logic is complete
   socket.emit("roomState", getSanitizedRoomState(room, isHost, user));
   if (isNewHost) {
     socket.emit("newChatMessage", {
@@ -294,6 +323,7 @@ async function handleJoinRoom(socket, slug) {
     socket.emit("newSongPlaying", getAuthoritativeNowPlaying(room));
   }
 
+  // Announce join to others and update lists
   if (!isReconnecting) {
     io.to(roomId).emit("newChatMessage", {
       system: true,
@@ -304,6 +334,7 @@ async function handleJoinRoom(socket, slug) {
     io.to(roomId).emit("updateListenerCount", userList.length);
     broadcastLobbyData();
   } else {
+    // On reconnect, just make sure everyone's user list is correct
     io.to(roomId).emit("updateUserList", generateUserList(room));
   }
 }
@@ -451,7 +482,7 @@ async function handleSearchYouTube(socket, { query }) {
     socket.emit("searchYouTubeResults", []);
   }
 }
-async function handleAddYouTubeTrack(socket, roomId, url) {
+async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
   if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
