@@ -14,8 +14,12 @@
       "destination": "https://vibes-fqic.onrender.com/auth/:path*"
     },
     {
+      "source": "/room/:roomId",
+      "destination": "/views/room.html"
+    },
+    {
       "source": "/((?!.*\\..*).*)",
-      "destination": "/index.html"
+      "destination": "/views/index.html"
     }
   ]
 }
