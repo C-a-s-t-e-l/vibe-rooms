@@ -491,7 +491,6 @@ async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
   const normalizedQuery = query.trim().toLowerCase();
 
-  // Caching logic remains the same
   if (searchCache.has(normalizedQuery)) {
     const cached = searchCache.get(normalizedQuery);
     if (Date.now() - cached.timestamp < CACHE_DURATION) {
@@ -500,21 +499,16 @@ async function handleSearchYouTube(socket, { query }) {
   }
 
   try {
-    // --- START OF NEW SESSION PROXY LOGIC ---
     const options = {
       dumpSingleJson: true,
       flatPlaylist: true,
     };
 
-    // Check if the base PROXY_URL is set in the environment
-     if (process.env.PROXY_URL) {
-      const sessionId = Math.random().toString(36).substring(2);
-      // Correctly parse the URL to modify the username
-      const proxyUrl = new URL(process.env.PROXY_URL);
-      proxyUrl.username = `${proxyUrl.username}-session-${sessionId}`;
-      options.proxy = proxyUrl.toString();
+    // The Web Unlocker manages sessions automatically.
+    // We just pass the base PROXY_URL from the environment.
+    if (process.env.PROXY_URL) {
+      options.proxy = process.env.PROXY_URL;
     }
-    // --- END OF NEW SESSION PROXY LOGIC ---
 
     const searchResults = await ytDlpExec(`ytsearch10:"${normalizedQuery}"`, options);
 
@@ -531,13 +525,10 @@ async function handleSearchYouTube(socket, { query }) {
       results: videoResults,
       timestamp: Date.now(),
     });
-
     socket.emit("searchYouTubeResults", videoResults);
 
   } catch (error) {
-    // Log the full error for debugging on the server
     console.error(`yt-dlp search error for query "${normalizedQuery}":`, error);
-    // Send an empty array to the client so the UI can handle it gracefully
     socket.emit("searchYouTubeResults", []);
   }
 }
@@ -545,25 +536,20 @@ async function handleSearchYouTube(socket, { query }) {
 async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
   if (!room) return;
-
   const isHost = socket.user.id === room.hostUserId;
+  
   const playlistRegex = /[?&]list=([\w-]+)/;
   const playlistMatch = url.match(playlistRegex);
 
   try {
-    // --- START OF NEW SESSION PROXY LOGIC ---
     const options = {
       dumpSingleJson: true,
     };
     
-    // Check if the base PROXY_URL is set in the environment
+    // The Web Unlocker manages sessions automatically.
     if (process.env.PROXY_URL) {
-      const sessionId = Math.random().toString(36).substring(2);
-      const proxyUrl = new URL(process.env.PROXY_URL);
-      proxyUrl.username = `${proxyUrl.username}-session-${sessionId}`;
-      options.proxy = proxyUrl.toString();
+      options.proxy = process.env.PROXY_URL;
     }
-    // --- END OF NEW SESSION PROXY LOGIC ---
     
     let tracksToAdd = [];
     if (playlistMatch) {
@@ -571,7 +557,6 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
         system: true,
         text: "Processing playlist... this may take a moment.",
       });
-      // Use the options object with the session proxy
       const playlistInfo = await ytDlpExec(url, options); 
       tracksToAdd = playlistInfo.entries
         .filter((info) => info)
@@ -585,9 +570,7 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
           source: "youtube",
         }));
     } else {
-      // For single videos, we need to add the format option
       const singleVideoOptions = { ...options, format: "bestaudio/best" };
-      // Use the options object with the session proxy
       const info = await ytDlpExec(url, singleVideoOptions);
       tracksToAdd.push({
         videoId: info.id,
@@ -600,7 +583,6 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       });
     }
     
-    // Logic for adding to playlist or suggestions remains the same
     if (isHost) {
       room.playlist.push(...tracksToAdd);
       if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
@@ -618,9 +600,7 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
   } catch (e) {
-    // Log the full error for debugging on the server
     console.error("yt-dlp error:", e);
-    // Send a user-friendly message to the client
     socket.emit("newChatMessage", {
       system: true,
       text: "Sorry, that link could not be processed.",
