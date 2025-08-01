@@ -15,11 +15,11 @@
     },
     {
       "source": "/room/:roomId",
-      "destination": "/views/room.html"
+      "destination": "/room.html"
     },
     {
       "source": "/((?!.*\\..*).*)",
-      "destination": "/views/index.html"
+      "destination": "/index.html"
     }
   ]
 }
