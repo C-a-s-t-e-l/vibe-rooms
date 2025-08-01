@@ -10,8 +10,36 @@ const session = require("express-session");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const play = require("play-dl");
-const { request, ProxyAgent } = require('undici');
 
+try {
+  // A known-good client ID from YouTube Music web. This avoids the problematic runtime fetch.
+  const clientID = "a5f5735c-4389-4773-a178-e86b09a0a09e";
+
+  console.log(`>>> Using hardcoded clientID: ${clientID}`);
+
+  // Construct the one-and-only config object for play.setToken
+  const finalConfig = {
+    youtube: {
+      client_id: clientID,
+    },
+    // IMPORTANT: Add the fetch property with proxy here for all subsequent requests
+    // like video_info, search, etc.
+    fetch: {}
+  };
+
+  if (process.env.PROXY_URL) {
+    console.log(">>> Configuring play-dl with proxy for all subsequent requests.");
+    finalConfig.fetch.proxy = process.env.PROXY_URL;
+  }
+
+  // Call setToken ONLY ONCE with the complete configuration.
+  play.setToken(finalConfig);
+
+  console.log(">>> play-dl successfully configured.");
+
+} catch (e) {
+  console.error("!!!!!! FAILED TO CONFIGURE PLAY-DL !!!!!!", e.message);
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -212,52 +240,6 @@ const generateUserList = (room) => {
     isHost: listener.user.id === room.hostUserId,
   }));
 };
-
-async function configurePlayDL() {
-  try {
-    let clientID;
-
-    if (process.env.PROXY_URL) {
-      console.log(">>> Using proxy to fetch YouTube client ID via undici...");
-      const proxyAgent = new ProxyAgent(process.env.PROXY_URL);
-      const { body } = await request('https://www.youtube.com/iframe_api', {
-        dispatcher: proxyAgent
-      });
-      const html = await body.text();
-      clientID = html.split('INNERTUBE_API_KEY":"')[1].split('"')[0];
-    } else {
-      console.log(">>> Fetching YouTube client ID directly...");
-      clientID = await play.getFreeClientID();
-    }
-
-    if (!clientID) {
-      throw new Error("Could not retrieve clientID.");
-    }
-    
-    console.log(`>>> Retrieved clientID: ${clientID.substring(0, 10)}...`);
-    
-    // Construct the one-and-only config object
-    const finalConfig = {
-      youtube: {
-        client_id: clientID,
-      },
-      // IMPORTANT: Add the fetch property with proxy here for all subsequent requests
-      fetch: {}
-    };
-
-    if (process.env.PROXY_URL) {
-      finalConfig.fetch.proxy = process.env.PROXY_URL;
-    }
-
-    // Call setToken ONLY ONCE with the complete configuration.
-    play.setToken(finalConfig);
-
-    console.log(">>> play-dl successfully configured.");
-
-  } catch (e) {
-    console.error("!!!!!! FAILED TO CONFIGURE PLAY-DL !!!!!!", e.message);
-  }
-}
 
 const getSanitizedRoomState = (room, isHost, user) => {
   if (!room) return null;
@@ -849,8 +831,6 @@ function handleSendMessage(socket, msg) {
   };
   io.to(msg.roomId).emit("newChatMessage", message);
 }
-
-configurePlayDL();
 
 server.listen(PORT, () =>
   console.log(`Vibe Rooms server is live on http://localhost:${PORT}`)
