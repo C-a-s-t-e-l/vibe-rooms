@@ -2,16 +2,8 @@
   "version": 2,
   "rewrites": [
     {
-      "source": "/socket.io/:path*",
-      "destination": "https://vibes-fqic.onrender.com/socket.io/:path*"
-    },
-    {
       "source": "/api/:path*",
       "destination": "https://vibes-fqic.onrender.com/api/:path*"
-    },
-    {
-      "source": "/auth/:path*",
-      "destination": "https://vibes-fqic.onrender.com/auth/:path*"
     },
     {
       "source": "/room/:roomId",
