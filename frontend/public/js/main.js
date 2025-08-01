@@ -3,7 +3,7 @@
 document.addEventListener("DOMContentLoaded", () => {
   // +++ CHANGE START: Define backend URL and update socket connection +++
   const BACKEND_URL = "https://vibes-fqic.onrender.com";
-  const socket = io(BACKEND_URL, { withCredentials: true });
+   const socket = io(); 
   // +++ CHANGE END +++
 
   // --- Core DOM Elements ---
@@ -26,48 +26,31 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- Check Authentication Status on Page Load ---
   // +++ CHANGE: Update fetch URL to point to backend +++
-  fetch(`${BACKEND_URL}/api/user`, { credentials: "include" })
-    .then((res) => {
-      if (!res.ok) {
-        // If the response is not OK (e.g., 401), treat as logged out
-        return Promise.reject("Not authenticated");
-      }
+   fetch(`/api/user`) 
+    .then((res) => { // ... updated logic for cleaner auth flow
+      if (!res.ok) return Promise.reject("Not authenticated");
       return res.json();
     })
     .then((user) => {
       if (user && user.id) {
         setupLoggedInUI(user);
-        // Update the login link to be the backend auth link
-        const loginLink = document.querySelector('a[href="/auth/google"]');
-        if (loginLink) {
-          loginLink.href = `${BACKEND_URL}/auth/google`;
-        }
       } else {
-        throw new Error("User not found");
+        throw new Error("User not found or not authenticated");
       }
     })
     .catch(() => {
       loggedOutView.style.display = "block";
       loggedInView.style.display = "none";
-      // Update the login link to be the backend auth link
-      const loginLink = document.querySelector('a[href="/auth/google"]');
-      if (loginLink) {
-        loginLink.href = `${BACKEND_URL}/auth/google`;
-      }
     });
 
-  /**
-   * Sets up the UI and event listeners for a logged-in user.
-   * @param {object} user - The user object from the server.
-   */
   function setupLoggedInUI(user) {
     loggedOutView.style.display = "none";
     loggedInView.style.display = "block";
 
-    // +++ CHANGE: Logout link points to backend +++
+    // REVERT: Logout link is relative. Vercel will proxy it.
     navActions.innerHTML = `
             <p class="nav-link">Welcome, ${user.displayName}!</p>
-            <a href="${BACKEND_URL}/logout" class="btn btn-secondary">Log Out</a>
+            <a href="/logout" class="btn btn-secondary">Log Out</a>
         `;
 
     // --- ALL LOGGED-IN LOGIC NOW LIVES INSIDE THIS FUNCTION SCOPE ---

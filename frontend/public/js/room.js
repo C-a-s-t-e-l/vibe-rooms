@@ -3,9 +3,10 @@
 document.addEventListener("DOMContentLoaded", () => {
   // +++ CHANGE START: Define backend URL and update socket connection +++
   const BACKEND_URL = "https://vibes-fqic.onrender.com";
-  const socket = io(BACKEND_URL, {
-    withCredentials: true, // This is crucial for sending cookies (session) across domains
+ const socket = io({
+    withCredentials: true,
   });
+
   // +++ CHANGE END +++
 
   const formatTime = (ms) => {
