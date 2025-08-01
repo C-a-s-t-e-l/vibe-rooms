@@ -9,8 +9,8 @@
         "jsonwebtoken": "^9.0.2",
         "passport": "^0.7.0",
         "passport-google-oauth20": "^2.0.0",
+        "play-dl": "^1.9.7",
         "socket.io": "^4.8.1",
-        "spotify-web-api-node": "^5.0.2",
-        "youtube-dl-exec": "^3.0.22"
+        "spotify-web-api-node": "^5.0.2"
     }
 }
