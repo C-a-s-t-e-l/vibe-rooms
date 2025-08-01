@@ -185,20 +185,29 @@ async function handleSearchYouTube(socket, { query }) {
     const command = `ytsearch10:${query}`;
     const options = {
       dumpJson: true,
-      cookies: "cookies.txt",
-      // --- THE FINAL FIX ---
-      // Adding the Referer header completes our browser disguise.
-      // This will satisfy the proxy's anti-bot checks and prevent the timeout.
-      addHeader: ["Referer:https://www.youtube.com/"],
+      cookies: "cookies.txt", // Use the cookie file
     };
+
+    // --- THIS IS THE FINAL FIX ---
+    // Pass the proxy as an environment variable instead of a flag.
+    // This uses a more standard connection method that is less likely
+    // to be blocked by the proxy provider's firewall.
+    const execOptions = {};
     if (process.env.PROXY_URL) {
-      options.proxy = process.env.PROXY_URL;
+      execOptions.env = {
+        HTTPS_PROXY: process.env.PROXY_URL,
+        HTTP_PROXY: process.env.PROXY_URL,
+      };
     }
-    const result = await ytDlpExec(command, options);
+    // --- END OF FIX ---
+
+    const result = await ytDlpExec(command, options, execOptions);
+
     if (!result.stdout || result.stdout.trim() === "") {
       socket.emit("searchYouTubeResults", []);
       return;
     }
+
     const videos = result.stdout
       .trim()
       .split("\n")
@@ -224,16 +233,24 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     const options = {
       dumpJson: true,
       noPlaylist: true,
-      cookies: "cookies.txt",
-      // --- THE FINAL FIX ---
-      // Adding the Referer here as well for consistency.
-      addHeader: ["Referer:https://www.youtube.com/"],
+      cookies: "cookies.txt", // Use the cookie file
     };
+
+    // --- THIS IS THE FINAL FIX ---
+    // Applying the same environment variable strategy here.
+    const execOptions = {};
     if (process.env.PROXY_URL) {
-      options.proxy = process.env.PROXY_URL;
+      execOptions.env = {
+        HTTPS_PROXY: process.env.PROXY_URL,
+        HTTP_PROXY: process.env.PROXY_URL,
+      };
     }
-    const result = await ytDlpExec(url, options);
+    // --- END OF FIX ---
+
+    const result = await ytDlpExec(url, options, execOptions);
+
     const video = JSON.parse(result.stdout);
+
     const track = {
       videoId: video.id,
       name: video.title || "Untitled",
