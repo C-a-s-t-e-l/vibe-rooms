@@ -10,6 +10,7 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const session = require("express-session");
 const ytDlpExec = require("yt-dlp-exec");
 const cors = require("cors"); // +++ CHANGE: Import cors
+const jwt = require('jsonwebtoken'); 
 
 const app = express();
 const server = http.createServer(app);
@@ -110,18 +111,46 @@ app.get(
 );
 app.get(
   "/auth/google/callback",
-  passport.authenticate("google", { failureRedirect: FRONTEND_URL }),
-  (req, res) => res.redirect(FRONTEND_URL) // Redirect to the Vercel frontend
+  passport.authenticate("google", { failureRedirect: FRONTEND_URL, session: false }), // Note: session: false
+  (req, res) => {
+    // We got the user from Google. Now create a JWT.
+    const payload = {
+      id: req.user.id,
+      displayName: req.user.displayName,
+      avatar: req.user.photos[0].value
+    };
+    
+    // Sign the token. Use SESSION_SECRET as the JWT secret.
+    const token = jwt.sign(payload, process.env.SESSION_SECRET, { expiresIn: '1d' });
+
+    // Redirect the user back to the frontend, passing the token as a query parameter.
+    res.redirect(`${FRONTEND_URL}?token=${token}`);
+  }
 );
+
+
+// --- ADD NEW MIDDLEWARE TO VERIFY THE TOKEN ---
+const verifyToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+  if (token == null) return res.sendStatus(401); // if there isn't any token
+
+  jwt.verify(token, process.env.SESSION_SECRET, (err, user) => {
+    if (err) return res.sendStatus(403); // if token is no longer valid
+    req.user = user;
+    next(); // proceed to the next middleware
+  });
+};
 app.get("/logout", (req, res, next) => {
   req.logout((err) => {
     if (err) return next(err);
     res.redirect(FRONTEND_URL); // Redirect to the Vercel frontend
   });
 });
-app.get("/api/user", (req, res) => {
-  if (req.isAuthenticated()) res.json(req.user);
-  else res.status(401).json({ message: "Not authenticated" });
+app.get("/api/user", verifyToken, (req, res) => {
+  // If verifyToken succeeds, req.user will be populated from the JWT.
+  res.json(req.user);
 });
 
 // These routes will now primarily be hit by Vercel's serverless functions
@@ -146,13 +175,20 @@ io.engine.use(sessionMiddleware);
 io.engine.use(passport.initialize());
 io.engine.use(passport.session());
 io.use((socket, next) => {
-  const user = socket.request.user;
-  if (user) {
+  const token = socket.handshake.auth.token;
+
+  if (!token) {
+    return next(new Error("unauthorized: no token provided"));
+  }
+
+  jwt.verify(token, process.env.SESSION_SECRET, (err, user) => {
+    if (err) {
+      return next(new Error("unauthorized: invalid token"));
+    }
+    // Attach the user object from the token to the socket object
     socket.user = user;
     next();
-  } else {
-    next(new Error("unauthorized"));
-  }
+  });
 });
 
 // --- Socket Event Listeners ---
