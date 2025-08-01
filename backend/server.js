@@ -13,26 +13,29 @@ const play = require("play-dl");
 
 // --- NEW, ROBUST PLAY-DL CONFIGURATION ---
 // This configures play-dl ONCE at startup.
-const playDLSource = {
-  youtube: "video" // Use 'video' source for YouTube
-};
-
+// 1. Set the global proxy configuration for the library's internal fetcher FIRST.
 if (process.env.PROXY_URL) {
   console.log(">>> Configuring play-dl with proxy for all internal requests.");
-  playDLSource.proxy = process.env.PROXY_URL;
-}
-
-// Set the source globally for all play-dl operations.
-play.setSource(playDLSource);
-
-// Now that the proxy is configured, we can safely get the client ID.
-play.getFreeClientID().then((clientID) => {
   play.setToken({
-    youtube: {
-      client_id: clientID,
+    fetch: {
+      proxy: process.env.PROXY_URL
     }
   });
+}
+
+// 2. NOW, get the client ID. This call will respect the proxy we just set.
+play.getFreeClientID().then((clientID) => {
+  // 3. Add the YouTube-specific client ID to the existing token configuration.
+  play.setToken({
+    youtube: {
+      client_id: clientID
+    }
+  });
+  console.log(">>> play-dl successfully configured with Client ID.");
+}).catch(e => {
+  console.error("!!!!!! FAILED TO CONFIGURE PLAY-DL'S CLIENT ID !!!!!!", e.message);
 });
+
 // --- END OF NEW CONFIGURATION ---
 
 const app = express();
