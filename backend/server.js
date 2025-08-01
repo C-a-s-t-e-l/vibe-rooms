@@ -490,7 +490,8 @@ function handleLeaveRoom(socket) {
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
   const normalizedQuery = query.trim().toLowerCase();
-  
+
+  // Caching logic remains the same
   if (searchCache.has(normalizedQuery)) {
     const cached = searchCache.get(normalizedQuery);
     if (Date.now() - cached.timestamp < CACHE_DURATION) {
@@ -499,14 +500,28 @@ async function handleSearchYouTube(socket, { query }) {
   }
 
   try {
-    // This is the new logic that adds the proxy if it exists
+    // --- START OF NEW SESSION PROXY LOGIC ---
     const options = {
       dumpSingleJson: true,
       flatPlaylist: true,
     };
+
+    // Check if the base PROXY_URL is set in the environment
     if (process.env.PROXY_URL) {
-      options.proxy = process.env.PROXY_URL;
+      // Create a unique session ID for this specific search task
+      const sessionId = Math.random().toString(36).substring(2);
+      
+      // Dynamically construct the proxy URL with the session ID
+      // This tells Bright Data to use the same IP for all retries of this one command
+      const proxyUrlWithSession = process.env.PROXY_URL.replace(
+        'brd-customer', 
+        `brd-customer-session-${sessionId}`
+      );
+      
+      // Add the unique proxy URL to the yt-dlp options
+      options.proxy = proxyUrlWithSession;
     }
+    // --- END OF NEW SESSION PROXY LOGIC ---
 
     const searchResults = await ytDlpExec(`ytsearch10:"${normalizedQuery}"`, options);
 
@@ -523,10 +538,13 @@ async function handleSearchYouTube(socket, { query }) {
       results: videoResults,
       timestamp: Date.now(),
     });
+
     socket.emit("searchYouTubeResults", videoResults);
 
   } catch (error) {
+    // Log the full error for debugging on the server
     console.error(`yt-dlp search error for query "${normalizedQuery}":`, error);
+    // Send an empty array to the client so the UI can handle it gracefully
     socket.emit("searchYouTubeResults", []);
   }
 }
@@ -534,27 +552,41 @@ async function handleSearchYouTube(socket, { query }) {
 async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
   if (!room) return;
+
   const isHost = socket.user.id === room.hostUserId;
-  
   const playlistRegex = /[?&]list=([\w-]+)/;
   const playlistMatch = url.match(playlistRegex);
 
   try {
-    // This is the new logic that adds the proxy if it exists
+    // --- START OF NEW SESSION PROXY LOGIC ---
     const options = {
       dumpSingleJson: true,
     };
+    
+    // Check if the base PROXY_URL is set in the environment
     if (process.env.PROXY_URL) {
-      options.proxy = process.env.PROXY_URL;
+      // Create a unique session ID for this specific add-track task
+      const sessionId = Math.random().toString(36).substring(2);
+      
+      // Dynamically construct the proxy URL with the session ID
+      const proxyUrlWithSession = process.env.PROXY_URL.replace(
+        'brd-customer', 
+        `brd-customer-session-${sessionId}`
+      );
+      
+      // Add the unique proxy URL to the yt-dlp options
+      options.proxy = proxyUrlWithSession;
     }
-
+    // --- END OF NEW SESSION PROXY LOGIC ---
+    
     let tracksToAdd = [];
     if (playlistMatch) {
       socket.emit("newChatMessage", {
         system: true,
         text: "Processing playlist... this may take a moment.",
       });
-      const playlistInfo = await ytDlpExec(url, options); // Use new options
+      // Use the options object with the session proxy
+      const playlistInfo = await ytDlpExec(url, options); 
       tracksToAdd = playlistInfo.entries
         .filter((info) => info)
         .map((info) => ({
@@ -567,20 +599,22 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
           source: "youtube",
         }));
     } else {
+      // For single videos, we need to add the format option
       const singleVideoOptions = { ...options, format: "bestaudio/best" };
-      const info = await ytDlpExec(url, singleVideoOptions); // Use new options
+      // Use the options object with the session proxy
+      const info = await ytDlpExec(url, singleVideoOptions);
       tracksToAdd.push({
         videoId: info.id,
         name: info.title,
         artist: info.uploader || info.channel,
-       albumArt: info.thumbnails?.pop()?.url || "/placeholder.svg",
+        albumArt: info.thumbnails?.pop()?.url || "/placeholder.svg",
         duration_ms: info.duration * 1000,
         url: info.url,
         source: "youtube",
       });
     }
     
-    // The rest of this function is unchanged
+    // Logic for adding to playlist or suggestions remains the same
     if (isHost) {
       room.playlist.push(...tracksToAdd);
       if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
@@ -598,7 +632,9 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
   } catch (e) {
+    // Log the full error for debugging on the server
     console.error("yt-dlp error:", e);
+    // Send a user-friendly message to the client
     socket.emit("newChatMessage", {
       system: true,
       text: "Sorry, that link could not be processed.",
