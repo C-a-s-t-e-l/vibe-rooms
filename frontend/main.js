@@ -124,45 +124,48 @@ document.addEventListener("DOMContentLoaded", () => {
       updateRoomsList(roomsToRender);
     }
 
-    function updateRoomsList(rooms) {
-      if (!roomsGrid) return;
-      roomsGrid.innerHTML = "";
-      if (rooms.length === 0) {
-        noRoomsMessage.style.display = "block";
-      } else {
-        noRoomsMessage.style.display = "none";
-        rooms.forEach((room) => {
-          const roomCard = document.createElement("div");
-          roomCard.className = "room-card";
-          const albumArtUrl =
-            room.nowPlaying && room.nowPlaying.track
-              ? room.nowPlaying.track.albumArt
-              : "/assets/placeholder.svg";
-          if (room.nowPlaying && room.nowPlaying.track) {
-            roomCard.style.backgroundImage = `url(${albumArtUrl})`;
-          }
-          roomCard.innerHTML = `
-                        <img src="${albumArtUrl}" alt="${room.name}" class="album-art"/>
-                        <div class="room-card-info">
-                            <h3 class="room-name">${room.name}</h3>
-                            <div class="room-card-footer">
-                                <div class="room-listeners">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                                    <span>${room.listenerCount} listeners</span>
-                                </div>
-                                <div class="status-indicator">
-                                    <div class="status-dot"></div><span>LIVE</span>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-          roomCard.addEventListener("click", () => {
-            window.location.href = `/room/${room.id}`;
-          });
-          roomsGrid.appendChild(roomCard);
-        });
+   function updateRoomsList(rooms) {
+  if (!roomsGrid) return;
+  roomsGrid.innerHTML = "";
+  if (rooms.length === 0) {
+    noRoomsMessage.style.display = "block";
+  } else {
+    noRoomsMessage.style.display = "none";
+    rooms.forEach((room) => {
+      const roomCard = document.createElement("div");
+      roomCard.className = "room-card";
+      const albumArtUrl =
+        room.nowPlaying && room.nowPlaying.track
+          ? room.nowPlaying.track.albumArt
+          : "/placeholder.svg";
+      if (room.nowPlaying && room.nowPlaying.track) {
+        roomCard.style.backgroundImage = `url(${albumArtUrl})`;
       }
-    }
+      roomCard.innerHTML = `
+        <img src="${albumArtUrl}" alt="${room.name}" class="album-art"/>
+        <div class="room-card-info">
+            <h3 class="room-name">${room.name}</h3>
+            <div class="room-card-footer">
+                <div class="room-listeners">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    <span>${room.listenerCount} listeners</span>
+                </div>
+                <div class="status-indicator">
+                    <div class="status-dot"></div><span>LIVE</span>
+                </div>
+            </div>
+        </div>
+      `;
+      
+      // THIS IS THE LINE THAT IS CHANGED
+      roomCard.addEventListener("click", () => {
+        window.location.href = `/room/${room.slug}`; 
+      });
+
+      roomsGrid.appendChild(roomCard);
+    });
+  }
+}
 
     // --- Attach all Event Listeners for Logged-In state ---
 
@@ -205,9 +208,9 @@ document.addEventListener("DOMContentLoaded", () => {
       renderVibeTags(vibes);
       renderFilteredRooms();
     });
-    socket.on("roomCreated", ({ roomId }) => {
-      window.location.href = `/room/${roomId}`;
-    });
+    socket.on("roomCreated", ({ slug }) => {
+  window.location.href = `/room/${slug}`;
+});
 
     // Initial fetch of rooms
     socket.emit("getRooms");

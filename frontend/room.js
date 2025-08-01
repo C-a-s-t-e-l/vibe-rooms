@@ -17,7 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
   };
 
-  const currentRoomId = window.location.pathname.split("/").pop();
+ const currentRoomSlug = window.location.pathname.split("/").pop();
   let nowPlayingInterval;
   let isHost = false,
     audioContextUnlocked = false,
@@ -44,7 +44,7 @@ document.addEventListener("DOMContentLoaded", () => {
   audioUnlockOverlay.addEventListener("click", unlockAudio);
   setupSocketListeners();
   setupUIEventListeners();
-  socket.emit("joinRoom", currentRoomId);
+  socket.emit("joinRoom", currentRoomSlug);
 
   function setupSocketListeners() {
     socket.on("roomState", (data) => {
@@ -494,7 +494,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const cardEl = document.querySelector(".now-playing-card");
     if (!nowPlaying || !nowPlaying.track) {
       cardEl.classList.remove("is-playing");
-      artEl.src = "/assets/placeholder.svg";
+      artEl.src = "/placeholder.svg";
       nameEl.textContent = "Nothing Playing";
       artistEl.textContent = "Add a YouTube link to start the vibe";
       bgEl.style.backgroundImage = "none";
