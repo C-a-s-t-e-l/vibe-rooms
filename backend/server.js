@@ -409,21 +409,30 @@ function handleLeaveRoom(socket) {
 }
 
 // --- CORRECTED AND DEBUG-ENHANCED HANDLERS ---
+
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
   try {
     const command = `ytsearch10:${query}`;
+    
+    // --- THIS IS THE FINAL FIX ---
+    // We remove the --proxy flag and instead pass the proxy
+    // as a standard environment variable, which is more robust.
     const options = {
       dumpJson: true,
-      // --- THIS IS THE FIX ---
-      // We are adding a standard browser User-Agent to make our request look legitimate
-      // to the Bright Data proxy, which will prevent the 403 Forbidden error.
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
     };
 
     if (process.env.PROXY_URL) {
-      options.proxy = process.env.PROXY_URL;
+      // Pass proxy as an environment variable to the spawned process
+      options.env = {
+        ...process.env, // Inherit current environment
+        'HTTPS_PROXY': process.env.PROXY_URL,
+        'HTTP_PROXY': process.env.PROXY_URL,
+      };
+      // We no longer pass options.proxy
     }
+    // --- END OF FIX ---
     
     const result = await ytDlpExec(command, options);
     
@@ -452,17 +461,22 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
   try {
+    // --- THIS IS THE FINAL FIX ---
+    // Applying the same environment variable strategy here.
     const options = {
       dumpJson: true,
       noPlaylist: true,
-      // --- THIS IS THE FIX ---
-      // We add the same User-Agent here for consistency.
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
     };
 
     if (process.env.PROXY_URL) {
-      options.proxy = process.env.PROXY_URL;
+      options.env = {
+        ...process.env,
+        'HTTPS_PROXY': process.env.PROXY_URL,
+        'HTTP_PROXY': process.env.PROXY_URL,
+      };
     }
+    // --- END OF FIX ---
 
     const result = await ytDlpExec(url, options);
     
