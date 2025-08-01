@@ -18,6 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
  const currentRoomSlug = window.location.pathname.split("/").pop();
+ let currentRoomId = null;
   let nowPlayingInterval;
   let isHost = false,
     audioContextUnlocked = false,
@@ -53,6 +54,7 @@ document.addEventListener("DOMContentLoaded", () => {
         window.location.href = "/";
         return;
       }
+      currentRoomId = data.id;
 
       document.title = data.name;
 
