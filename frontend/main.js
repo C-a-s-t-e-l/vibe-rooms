@@ -2,8 +2,10 @@
 
 document.addEventListener("DOMContentLoaded", () => {
   // +++ CHANGE START: Define backend URL and update socket connection +++
-  const BACKEND_URL = "https://vibes-fqic.onrender.com";
-   const socket = io(); 
+ const BACKEND_URL = "https://vibes-fqic.onrender.com";
+  // CHANGE THIS LINE to use the full URL.
+  // This tells Socket.IO where to connect AND where to fetch the client script from.
+  const socket = io(BACKEND_URL, { withCredentials: true }); 
   // +++ CHANGE END +++
 
   // --- Core DOM Elements ---
