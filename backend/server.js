@@ -416,10 +416,10 @@ async function handleSearchYouTube(socket, { query }) {
     const command = `ytsearch10:${query}`;
     const options = {
       dumpJson: true,
-      // This tells yt-dlp to use the cookie file located on your Render server.
-      // It makes the server's request look like it's from a logged-in user.
-      // Your end-users never see or use this file.
-      cookies: 'backend/cookies.txt', 
+      // --- THE FINAL FIX ---
+      // The path is relative to where the script is run.
+      // Since Render runs from the 'backend' directory, the path is just the filename.
+      cookies: 'cookies.txt', 
     };
 
     if (process.env.PROXY_URL) {
@@ -456,8 +456,9 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     const options = {
       dumpJson: true,
       noPlaylist: true,
-      // Same principle here: the server uses its own cookies to fetch the video info.
-      cookies: 'backend/cookies.txt',
+      // --- THE FINAL FIX ---
+      // Correcting the path here as well.
+      cookies: 'cookies.txt',
     };
 
     if (process.env.PROXY_URL) {
