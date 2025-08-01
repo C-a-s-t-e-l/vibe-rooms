@@ -15,11 +15,11 @@ const fs = require("fs"); // We need the file system module
 
 // --- FINAL, WORKING PLAY-DL CONFIGURATION ---
 try {
-  // Read the cookie file from the disk. The path is 'cookies.txt' because
-  // Render runs the script from inside the 'backend' folder.
-  const cookie_string = fs.readFileSync("backend/cookies.txt", "utf-8");
+  // --- THIS IS THE CORRECTED PATH ---
+  // Since Render's root directory is 'backend', the script runs from there.
+  // The path is simply the filename itself.
+  const cookie_string = fs.readFileSync("cookies.txt", "utf-8");
 
-  // Configure play-dl ONCE with everything it needs.
   play.setToken({
     youtube: {
       cookie: cookie_string,
@@ -31,9 +31,7 @@ try {
     "!!!!!! FAILED TO CONFIGURE PLAY-DL WITH COOKIES !!!!!!",
     e.message
   );
-  console.log(
-    "Please ensure 'backend/cookies.txt' exists and is correctly formatted."
-  );
+  console.log("Please ensure 'cookies.txt' exists in the 'backend' folder.");
 }
 // --- END OF CONFIGURATION ---
 
@@ -215,7 +213,7 @@ io.on("connection", (socket) => {
   socket.on("searchYouTube", (data) => handleSearchYouTube(socket, data));
 });
 
-// --- NEW, SIMPLIFIED play-dl HANDLERS ---
+// --- FINAL, SIMPLIFIED play-dl HANDLERS ---
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
   try {
@@ -301,9 +299,6 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
 }
 
 // --- All other handler functions (unchanged) ---
-// (generateUserList, getSanitizedRoomState, handleJoinRoom, etc. are all here)
-// I am omitting them for brevity, but they are the same as your current file.
-
 const generateUserList = (room) => {
   if (!room) return [];
   return Object.values(room.listeners).map((listener) => ({
