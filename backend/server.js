@@ -12,7 +12,7 @@ const jwt = require("jsonwebtoken");
 const play = require("play-dl");
 
 try {
-  // A known-good client ID from YouTube Music web. This avoids the problematic runtime fetch.
+  // A known-good client ID from YouTube Music web.
   const clientID = "a5f5735c-4389-4773-a178-e86b09a0a09e";
 
   console.log(`>>> Using hardcoded clientID: ${clientID}`);
@@ -21,9 +21,11 @@ try {
   const finalConfig = {
     youtube: {
       client_id: clientID,
+      // ---> THIS IS THE FIX <---
+      // Add the missing 'cookie' property to prevent the 'split' error.
+      cookie: ""
     },
     // IMPORTANT: Add the fetch property with proxy here for all subsequent requests
-    // like video_info, search, etc.
     fetch: {}
   };
 
