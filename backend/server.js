@@ -419,16 +419,18 @@ async function handleSearchYouTube(socket, { query }) {
       options.proxy = process.env.PROXY_URL;
     }
     const command = `ytsearch10:${query}`;
-    const result = await ytDlpExec(command, options);
-    const videos = result.stdout
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-    const videoResults = videos.map((video) => ({
+    
+    // --- THIS IS THE FIX ---
+    // Tell the library to use the system-installed 'yt-dlp'
+    const result = await ytDlpExec('yt-dlp', command, options);
+    // --- END OF FIX ---
+
+    const videos = result.stdout.trim().split('\n').map(line => JSON.parse(line));
+    const videoResults = videos.map(video => ({
       videoId: video.id,
       title: video.title || "Untitled",
-      artist: video.channel || "Unknown Artist",
-      thumbnail: video.thumbnail,
+      artist: video.channel || 'Unknown Artist',
+      thumbnail: video.thumbnail
     }));
     socket.emit("searchYouTubeResults", videoResults);
   } catch (error) {
@@ -446,21 +448,23 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     if (process.env.PROXY_URL) {
       options.proxy = process.env.PROXY_URL;
     }
-    const video = await ytDlpExec(url, options);
+    
+    // --- THIS IS THE FIX ---
+    // Tell the library to use the system-installed 'yt-dlp'
+    const video = await ytDlpExec('yt-dlp', url, options);
+    // --- END OF FIX ---
+
     const track = {
       videoId: video.id,
       name: video.title || "Untitled",
       artist: video.channel || "Unknown Artist",
       albumArt: video.thumbnail || "/placeholder.svg",
       duration_ms: video.duration * 1000,
-      url:
-        video.formats.find(
-          (f) => f.format_id === "251" || f.format_id === "140"
-        )?.url || video.url,
+      url: video.formats.find(f => f.format_id === '251' || f.format_id === '140')?.url || video.url,
       source: "youtube",
     };
     if (!track.url) {
-      throw new Error("No playable audio format found for this video.");
+        throw new Error("No playable audio format found for this video.");
     }
     if (isHost) {
       room.playlist.push(track);
@@ -481,10 +485,7 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   } catch (e) {
     console.error(`yt-dlp error in handleAddYouTubeTrack for URL "${url}":`, e);
     socket.emit("addTrackFailed", { url: url });
-    socket.emit("newChatMessage", {
-      system: true,
-      text: "Sorry, that link could not be processed, is private, or is not a valid video.",
-    });
+    socket.emit("newChatMessage", { system: true, text: "Sorry, that link could not be processed, is private, or is not a valid video.", });
   }
 }
 
