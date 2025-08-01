@@ -85,7 +85,7 @@ passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
 
 // This part is less critical now as Vercel serves the files, but it's fine for local dev
-app.use(express.static(path.join(__dirname, "../frontend/public")));
+app.use(express.static(path.join(__dirname, "../frontend")));
 
 const ensureAuthenticated = (req, res, next) => {
   if (req.isAuthenticated()) return next();
