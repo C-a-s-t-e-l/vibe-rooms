@@ -453,17 +453,26 @@ function handleLeaveRoom(socket) {
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
   const normalizedQuery = query.trim().toLowerCase();
+  
   if (searchCache.has(normalizedQuery)) {
     const cached = searchCache.get(normalizedQuery);
     if (Date.now() - cached.timestamp < CACHE_DURATION) {
       return socket.emit("searchYouTubeResults", cached.results);
     }
   }
+
   try {
-    const searchResults = await ytDlpExec(`ytsearch10:"${normalizedQuery}"`, {
+    // This is the new logic that adds the proxy if it exists
+    const options = {
       dumpSingleJson: true,
       flatPlaylist: true,
-    });
+    };
+    if (process.env.PROXY_URL) {
+      options.proxy = process.env.PROXY_URL;
+    }
+
+    const searchResults = await ytDlpExec(`ytsearch10:"${normalizedQuery}"`, options);
+
     const videoResults = searchResults.entries
       .filter((info) => info)
       .map((info) => ({
@@ -472,30 +481,43 @@ async function handleSearchYouTube(socket, { query }) {
         artist: info.uploader || info.channel,
         thumbnail: `https://i.ytimg.com/vi/${info.id}/hqdefault.jpg`,
       }));
+      
     searchCache.set(normalizedQuery, {
       results: videoResults,
       timestamp: Date.now(),
     });
     socket.emit("searchYouTubeResults", videoResults);
+
   } catch (error) {
     console.error(`yt-dlp search error for query "${normalizedQuery}":`, error);
     socket.emit("searchYouTubeResults", []);
   }
 }
+
 async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
   if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
+  
   const playlistRegex = /[?&]list=([\w-]+)/;
   const playlistMatch = url.match(playlistRegex);
+
   try {
+    // This is the new logic that adds the proxy if it exists
+    const options = {
+      dumpSingleJson: true,
+    };
+    if (process.env.PROXY_URL) {
+      options.proxy = process.env.PROXY_URL;
+    }
+
     let tracksToAdd = [];
     if (playlistMatch) {
       socket.emit("newChatMessage", {
         system: true,
         text: "Processing playlist... this may take a moment.",
       });
-      const playlistInfo = await ytDlpExec(url, { dumpSingleJson: true });
+      const playlistInfo = await ytDlpExec(url, options); // Use new options
       tracksToAdd = playlistInfo.entries
         .filter((info) => info)
         .map((info) => ({
@@ -508,10 +530,8 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
           source: "youtube",
         }));
     } else {
-      const info = await ytDlpExec(url, {
-        dumpSingleJson: true,
-        format: "bestaudio/best",
-      });
+      const singleVideoOptions = { ...options, format: "bestaudio/best" };
+      const info = await ytDlpExec(url, singleVideoOptions); // Use new options
       tracksToAdd.push({
         videoId: info.id,
         name: info.title,
@@ -522,6 +542,8 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
         source: "youtube",
       });
     }
+    
+    // The rest of this function is unchanged
     if (isHost) {
       room.playlist.push(...tracksToAdd);
       if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
