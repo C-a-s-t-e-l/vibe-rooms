@@ -183,40 +183,33 @@ async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
   try {
     const command = `ytsearch10:${query}`;
-    
-    // --- THIS IS THE FINAL FIX ---
-    // We are now passing the proxy as an environment variable, which is more robust.
     const options = {
       dumpJson: true,
-      cookies: 'cookies.txt', // Keep the cookies to authenticate with YouTube
+      cookies: "cookies.txt",
+      // --- THE FINAL FIX ---
+      // Add a Referer header to make the request look like it's coming from a browser
+      // navigating the YouTube site. This is the last piece of the disguise.
+      addHeader: ["Referer:https://www.youtube.com"],
     };
-
-    // This block correctly sets the environment variable for the command
     if (process.env.PROXY_URL) {
-      options.env = {
-        'HTTPS_PROXY': process.env.PROXY_URL,
-        'HTTP_PROXY': process.env.PROXY_URL,
-      };
-      // We explicitly DO NOT use options.proxy anymore.
+      options.proxy = process.env.PROXY_URL;
     }
-    // --- END OF FIX ---
-    
     const result = await ytDlpExec(command, options);
-    
-    if (!result.stdout || result.stdout.trim() === '') {
+    if (!result.stdout || result.stdout.trim() === "") {
       socket.emit("searchYouTubeResults", []);
       return;
     }
-
-    const videos = result.stdout.trim().split('\n').map(line => JSON.parse(line));
-    const videoResults = videos.map(video => ({
+    const videos = result.stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const videoResults = videos.map((video) => ({
       videoId: video.id,
       title: video.title || "Untitled",
-      artist: video.channel || 'Unknown Artist',
-      thumbnail: video.thumbnail
+      artist: video.channel || "Unknown Artist",
+      thumbnail: video.thumbnail,
     }));
     socket.emit("searchYouTubeResults", videoResults);
-
   } catch (error) {
     console.error(`yt-dlp search error for query "${query}":`, error);
     socket.emit("searchYouTubeResults", []);
@@ -228,37 +221,33 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
   try {
-    // --- THIS IS THE FINAL FIX ---
-    // Applying the same environment variable strategy here.
     const options = {
       dumpJson: true,
       noPlaylist: true,
-      cookies: 'cookies.txt', // Keep cookies
+      cookies: "cookies.txt",
+      // --- THE FINAL FIX ---
+      // Adding the Referer here as well for consistency.
+      addHeader: ["Referer:https://www.youtube.com"],
     };
-
     if (process.env.PROXY_URL) {
-      options.env = {
-        'HTTPS_PROXY': process.env.PROXY_URL,
-        'HTTP_PROXY': process.env.PROXY_URL,
-      };
+      options.proxy = process.env.PROXY_URL;
     }
-    // --- END OF FIX ---
-
     const result = await ytDlpExec(url, options);
-    
     const video = JSON.parse(result.stdout);
-    
     const track = {
       videoId: video.id,
       name: video.title || "Untitled",
       artist: video.channel || "Unknown Artist",
       albumArt: video.thumbnail || "/placeholder.svg",
       duration_ms: video.duration * 1000,
-      url: video.formats.find(f => f.format_id === '251' || f.format_id === '140')?.url || video.url,
+      url:
+        video.formats.find(
+          (f) => f.format_id === "251" || f.format_id === "140"
+        )?.url || video.url,
       source: "youtube",
     };
     if (!track.url) {
-        throw new Error("No playable audio format found for this video.");
+      throw new Error("No playable audio format found for this video.");
     }
     if (isHost) {
       room.playlist.push(track);
@@ -279,12 +268,14 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   } catch (e) {
     console.error(`yt-dlp error in handleAddYouTubeTrack for URL "${url}":`, e);
     socket.emit("addTrackFailed", { url: url });
-    socket.emit("newChatMessage", { system: true, text: "Sorry, that link could not be processed, is private, or is not a valid video.", });
+    socket.emit("newChatMessage", {
+      system: true,
+      text: "Sorry, that link could not be processed, is private, or is not a valid video.",
+    });
   }
 }
 
 // ... all other handler functions (playTrackAtIndex, etc.) are here ...
-// I am including them for completeness.
 
 const generateUserList = (room) => {
   if (!room) return [];
