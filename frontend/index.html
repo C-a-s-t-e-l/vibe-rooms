@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Discover and share music in real-time with curated vibe rooms. Join a listening party or create your own!">
+    <title>Vibe Rooms - Social Music Listening</title>
+    <link rel="icon" type="image/x-icon" href="https://cdn-icons-png.flaticon.com/512/11563/11563315.png">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vibe Rooms</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div id="app-wrapper">
+        <nav class="main-nav">
+            <div class="logo-container">
+                <div class="logo-box"><span>VR</span></div>
+                <span class="logo-title">Vibe Rooms</span>
+            </div>
+            <div class="nav-actions">
+                <!-- This will be dynamically filled by main.js -->
+            </div>
+        </nav>
+
+        <main class="container">
+            <div id="logged-out-view">
+                <section class="hero">
+                    <div class="hero-content">
+                        <h1 class="hero-title glow-text">Vibe Rooms</h1>
+                        <p class="hero-subtitle">
+                            Discover and share music in cozy Filipino vibes. 
+                            <br />
+                            <span class="text-primary">Connect through sound, connect through culture.</span>
+                        </p>
+                         <a href="/auth/google" class="btn btn-primary" style="margin-top: 2rem;">
+                            <svg style="width:20px; height:20px; margin-right: 0.5rem; vertical-align: middle;" viewBox="0 0 24 24"><path fill="white" d="M21.35,11.1H12.18V13.83H18.69C18.36,17.64 15.19,19.27 12.19,19.27C8.36,19.27 5,16.25 5,12C5,7.9 8.2,4.73 12.19,4.73C14.76,4.73 16.04,5.85 16.96,6.72L19.33,4.35C17.22,2.44 14.86,1.5 12.19,1.5C7.03,1.5 3,5.55 3,12C3,18.6 6.9,22.5 12.19,22.5C17.6,22.5 21.5,18.33 21.5,12.33C21.5,11.76 21.45,11.43 21.35,11.1Z" /></svg>
+                            Sign In with Google
+                        </a>
+                    </div>
+                </section>
+            </div>
+            
+            <div id="logged-in-view" style="display: none;">
+                <section class="rooms-section" style="display: block;">
+                    <div class="section-header">
+                        <h2 class="section-title">Join a <span class="glow-text">Vibe</span></h2>
+                        <p class="section-subtitle">Find a room or create your own to start a listening party.</p>
+                         <div id="vibe-tag-cloud" class="vibe-tags-container"></div>
+                        <button class="btn btn-primary" id="create-room-btn">Create a New Vibe</button>
+                    </div>
+                    <div class="rooms-grid"></div>
+                    <p id="no-rooms-message" style="display: none; text-align: center;">No active vibes...</p>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/main.js"></script>
+    <div id="create-room-modal" class="modal-overlay" style="display: none;">
+  <div class="modal-content">
+    <button id="close-modal-btn" class="close-btn">×</button>
+    <h2>Create a New Vibe</h2>
+    
+    <div class="form-group">
+      <label for="room-name-input">Room Name</label>
+      <input type="text" id="room-name-input" placeholder="e.g., Para sa mga iniwan sa ere" autocomplete="off">
+    </div>
+
+    <div class="form-group">
+      <label>Choose a Preset Vibe</label>
+      <div id="preset-vibes-container" class="vibe-tags-container">
+        <!-- Preset vibes will be added here by JS, but we can have static ones for now -->
+        <button class="vibe-tag" data-vibe-name="OPM Throwback">OPM Throwback</button>
+        <button class="vibe-tag" data-vibe-name="Pang-Sawi / Marupok">Pang-Sawi / Marupok</button>
+        <button class="vibe-tag" data-vibe-name="Study & Chill">Study & Chill</button>
+        <button class="vibe-tag" data-vibe-name="Friday Night Hits">Friday Night Hits</button>
+        <button class="vibe-tag" data-vibe-name="Tita Hits (80s/90s)">Tita Hits (80s/90s)</button>
+        <button class="vibe-tag" data-vibe-name="K-Pop Stan Zone">K-Pop Stan Zone</button>
+      </div>
+    </div>
+    
+    <p class="or-divider">OR</p>
+
+    <div class="form-group">
+      <label for="custom-vibe-input">Create a Custom Vibe</label>
+      <input type="text" id="custom-vibe-input" placeholder="e.g., Pang-bardagulan playlist" autocomplete="off">
+    </div>
+    
+    <button id="modal-create-btn" class="btn btn-primary">Create Room</button>
+  </div>
+</div>
+</body>
+</html>
