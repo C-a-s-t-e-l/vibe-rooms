@@ -507,19 +507,12 @@ async function handleSearchYouTube(socket, { query }) {
     };
 
     // Check if the base PROXY_URL is set in the environment
-    if (process.env.PROXY_URL) {
-      // Create a unique session ID for this specific search task
+     if (process.env.PROXY_URL) {
       const sessionId = Math.random().toString(36).substring(2);
-      
-      // Dynamically construct the proxy URL with the session ID
-      // This tells Bright Data to use the same IP for all retries of this one command
-      const proxyUrlWithSession = process.env.PROXY_URL.replace(
-        'brd-customer', 
-        `brd-customer-session-${sessionId}`
-      );
-      
-      // Add the unique proxy URL to the yt-dlp options
-      options.proxy = proxyUrlWithSession;
+      // Correctly parse the URL to modify the username
+      const proxyUrl = new URL(process.env.PROXY_URL);
+      proxyUrl.username = `${proxyUrl.username}-session-${sessionId}`;
+      options.proxy = proxyUrl.toString();
     }
     // --- END OF NEW SESSION PROXY LOGIC ---
 
@@ -565,17 +558,10 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     
     // Check if the base PROXY_URL is set in the environment
     if (process.env.PROXY_URL) {
-      // Create a unique session ID for this specific add-track task
       const sessionId = Math.random().toString(36).substring(2);
-      
-      // Dynamically construct the proxy URL with the session ID
-      const proxyUrlWithSession = process.env.PROXY_URL.replace(
-        'brd-customer', 
-        `brd-customer-session-${sessionId}`
-      );
-      
-      // Add the unique proxy URL to the yt-dlp options
-      options.proxy = proxyUrlWithSession;
+      const proxyUrl = new URL(process.env.PROXY_URL);
+      proxyUrl.username = `${proxyUrl.username}-session-${sessionId}`;
+      options.proxy = proxyUrl.toString();
     }
     // --- END OF NEW SESSION PROXY LOGIC ---
     
