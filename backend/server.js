@@ -8,10 +8,11 @@ const path = require("path");
 const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const session = require("express-session");
-const ytDlpExec = require("yt-dlp-exec");
+// const ytDlpExec = require("yt-dlp-exec");
 const cors = require("cors"); // +++ CHANGE: Import cors
 const jwt = require('jsonwebtoken'); 
 const play = require('play-dl');
+const { setGlobalDispatcher, ProxyAgent } = require('undici');
 
 const getPlayDLSource = () => {
   const source = {
@@ -25,14 +26,16 @@ const getPlayDLSource = () => {
   return source;
 };
 
-// This part is still needed for YouTube searches
-play.getFreeClientID().then((clientID) => {
-  play.setToken({
-    youtube: {
-      client_id: clientID
-    }
-  });
-});
+
+if (process.env.PROXY_URL) {
+  try {
+    const proxyAgent = new ProxyAgent(process.env.PROXY_URL);
+    setGlobalDispatcher(proxyAgent);
+    console.log(">>>>> Global proxy configured successfully via undici.");
+  } catch (err) {
+    console.error("!!!!!! FAILED TO CONFIGURE GLOBAL PROXY !!!!!", err);
+  }
+}
 
 const app = express();
 const server = http.createServer(app);
