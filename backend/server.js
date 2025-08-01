@@ -421,8 +421,36 @@ async function handleSearchYouTube(socket, { query }) {
     const command = `ytsearch10:${query}`;
     
     // --- THIS IS THE FIX ---
-    // Tell the library to use the system-installed 'yt-dlp'
-    const result = await ytDlpExec('yt-dlp', command, options);
+    // The library automatically finds the system 'yt-dlp'.
+    // We just pass the command and options.
+    const result = await ytDlpExec(command, options);
+    // --- END OF FIX ---
+
+    const videos = result.stdout.trim().split('\n').map(line => JSON.parse(line));
+    const videoResults = videos.map(video => ({
+      videoId: video.id,
+      title: video.title || "Untitled",
+      artist: video.channel || 'Unknown Artist',
+      thumbnail: video.thumbnail
+    }));
+    socket.emit("searchYouTubeResults", videoResults);
+  } catch (error) {
+    console.error(`yt-dlp search error for query "${query}":`, error);
+    socket.emit("searchYouTubeResults", []);
+  }
+}async function handleSearchYouTube(socket, { query }) {
+  if (!query) return;
+  try {
+    const options = { dumpJson: true };
+    if (process.env.PROXY_URL) {
+      options.proxy = process.env.PROXY_URL;
+    }
+    const command = `ytsearch10:${query}`;
+    
+    // --- THIS IS THE FIX ---
+    // The library automatically finds the system 'yt-dlp'.
+    // We just pass the command and options.
+    const result = await ytDlpExec(command, options);
     // --- END OF FIX ---
 
     const videos = result.stdout.trim().split('\n').map(line => JSON.parse(line));
@@ -450,8 +478,9 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     }
     
     // --- THIS IS THE FIX ---
-    // Tell the library to use the system-installed 'yt-dlp'
-    const video = await ytDlpExec('yt-dlp', url, options);
+    // The library automatically finds the system 'yt-dlp'.
+    // We just pass the URL and options.
+    const video = await ytDlpExec(url, options);
     // --- END OF FIX ---
 
     const track = {
