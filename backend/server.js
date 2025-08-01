@@ -414,25 +414,17 @@ async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
   try {
     const command = `ytsearch10:${query}`;
-    
-    // --- THIS IS THE FINAL FIX ---
-    // We remove the --proxy flag and instead pass the proxy
-    // as a standard environment variable, which is more robust.
     const options = {
       dumpJson: true,
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+      // This tells yt-dlp to use the cookie file located on your Render server.
+      // It makes the server's request look like it's from a logged-in user.
+      // Your end-users never see or use this file.
+      cookies: 'backend/cookies.txt', 
     };
 
     if (process.env.PROXY_URL) {
-      // Pass proxy as an environment variable to the spawned process
-      options.env = {
-        ...process.env, // Inherit current environment
-        'HTTPS_PROXY': process.env.PROXY_URL,
-        'HTTP_PROXY': process.env.PROXY_URL,
-      };
-      // We no longer pass options.proxy
+      options.proxy = process.env.PROXY_URL;
     }
-    // --- END OF FIX ---
     
     const result = await ytDlpExec(command, options);
     
@@ -461,22 +453,16 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
   try {
-    // --- THIS IS THE FINAL FIX ---
-    // Applying the same environment variable strategy here.
     const options = {
       dumpJson: true,
       noPlaylist: true,
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+      // Same principle here: the server uses its own cookies to fetch the video info.
+      cookies: 'backend/cookies.txt',
     };
 
     if (process.env.PROXY_URL) {
-      options.env = {
-        ...process.env,
-        'HTTPS_PROXY': process.env.PROXY_URL,
-        'HTTP_PROXY': process.env.PROXY_URL,
-      };
+      options.proxy = process.env.PROXY_URL;
     }
-    // --- END OF FIX ---
 
     const result = await ytDlpExec(url, options);
     
