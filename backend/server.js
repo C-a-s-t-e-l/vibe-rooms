@@ -17,17 +17,19 @@ play.getFreeClientID().then((clientID) => {
   const tokenConfig = {
     youtube: {
       client_id: clientID,
+      // ----> THIS IS THE FIX <----
+      // The library expects this property to exist, even if it's empty.
+      // Providing it as an empty string prevents the internal 'split' error.
+      cookie: "" 
     },
     // This is the crucial part:
     // We tell play-dl to use our proxy for ANY internal HTTP requests it makes,
     // including the initial ones to get client info, which prevents the 429 error.
-    fetch: {},
+    fetch: {} 
   };
 
   if (process.env.PROXY_URL) {
-    console.log(
-      ">>> Configuring play-dl with proxy for all internal requests."
-    );
+    console.log(">>> Configuring play-dl with proxy for all internal requests.");
     tokenConfig.fetch.proxy = process.env.PROXY_URL;
   }
 
