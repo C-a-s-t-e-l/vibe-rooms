@@ -570,17 +570,18 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     // Use the helper to get our source object with the proxy
     const source = getPlayDLSource();
 
-    const validation = await play.validate(url);
-    if (!validation || !validation.includes("youtube")) {
-      return socket.emit("newChatMessage", {
-        system: true,
-        text: "Sorry, that doesn't look like a valid YouTube link.",
-      });
-    }
-
-    const info = await play.video_info(url, {
-      source: source, // Pass the source object here
+    // REMOVED the separate play.validate() call.
+    // We now rely on video_info() to validate the link. If it's invalid,
+    // it will throw an error and be caught by the catch block. This ensures
+    // the proxy is used for the validation request.
+    const info = await play.video_info(url, { 
+        source: source
     });
+    
+    // Add a check to ensure we got actual video details back
+    if (!info || !info.video_details) {
+        throw new Error(`URL did not resolve to a valid video: ${url}`);
+    }
 
     let videosToProcess = [];
     if (info.playlist) {
@@ -592,8 +593,8 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     } else {
       videosToProcess.push(info.video_details);
     }
-
-    const tracksToAdd = videosToProcess.map((video) => ({
+    
+    const tracksToAdd = videosToProcess.map(video => ({
       videoId: video.id,
       name: video.title || "Untitled",
       artist: video.channel ? video.channel.name : "Unknown Artist",
@@ -612,7 +613,7 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
         io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
       }
     } else {
-      const suggestions = tracksToAdd.map((track) => ({
+      const suggestions = tracksToAdd.map(track => ({
         ...track,
         suggestionId: `sugg_${Date.now()}_${Math.random()}`,
         suggester: { id: socket.user.id, name: socket.user.displayName },
@@ -620,8 +621,14 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       room.suggestions.push(...suggestions);
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
+
   } catch (e) {
-    console.error("play-dl error in handleAddYouTubeTrack:", e);
+    // This block now handles all errors, including invalid links.
+    console.error(`Error in handleAddYouTubeTrack for URL "${url}":`, e.message);
+
+    // Tell the client explicitly that the add operation failed so it can remove the spinner.
+    socket.emit("addTrackFailed", { url: url });
+
     socket.emit("newChatMessage", {
       system: true,
       text: "Sorry, that link could not be processed or is private.",
