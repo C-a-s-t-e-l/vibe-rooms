@@ -92,6 +92,17 @@ const ensureAuthenticated = (req, res, next) => {
   // In a real API, you'd send a 401 status. Redirecting is fine here.
   res.redirect(FRONTEND_URL);
 };
+
+const generateSlug = (name) => {
+  const baseSlug = name
+    .toLowerCase()
+    .replace(/ /g, "-") // Replace spaces with -
+    .replace(/[^\w-]+/g, ""); // Remove all non-word chars except -
+
+  const randomString = Math.random().toString(36).substring(2, 8);
+  return `${baseSlug}-${randomString}`;
+};
+
 app.get(
   "/auth/google",
   passport.authenticate("google", { scope: ["profile", "email"] })
@@ -219,18 +230,25 @@ const getSanitizedRoomState = (room, isHost, user) => {
   return safeRoomState;
 };
 
-async function handleJoinRoom(socket, roomId) {
-  const room = rooms[roomId];
+async function handleJoinRoom(socket, slug) {
+  // Find the room in our in-memory object by its slug.
+  const room = Object.values(rooms).find(r => r.slug === slug);
+
   if (!room) {
-    socket.emit("roomNotFound"); // Let client know room is gone
+    // If the room isn't in memory (e.g., server restarted), we could fetch it from the DB.
+    // For now, we'll just say it's not found.
+    console.log(`Room with slug "${slug}" not found in memory.`);
+    socket.emit("roomNotFound");
     return;
   }
 
+  // From this point on, we use the internal numeric room.id for socket.io rooms etc.
+  const roomId = room.id;
   const user = socket.user;
   const isReconnecting = !!reconnectionTimers[user.id];
 
   if (isReconnecting) {
-    console.log(`User ${user.displayName} reconnected within grace period.`);
+    console.log(`User ${user.displayName} reconnected to room ${room.slug} within grace period.`);
     clearTimeout(reconnectionTimers[user.id]);
     delete reconnectionTimers[user.id];
   }
@@ -238,7 +256,7 @@ async function handleJoinRoom(socket, roomId) {
   // Revive room if it was about to be deleted
   if (room.deletionTimer) {
     console.log(
-      `User ${user.displayName} joined an empty room. Cancelling deletion timer.`
+      `User ${user.displayName} joined an empty room ${room.slug}. Cancelling deletion timer.`
     );
     clearTimeout(room.deletionTimer);
     room.deletionTimer = null;
@@ -248,9 +266,7 @@ async function handleJoinRoom(socket, roomId) {
   room.listeners[user.id] = { socketId: socket.id, user: user };
   userSockets[socket.id] = { user: user, roomId };
 
-  // --- Definitive Host Assignment Logic ---
   let isNewHost = false;
-  // If the joining user is now the ONLY person in the room, they become the host.
   if (Object.keys(room.listeners).length === 1) {
     if (room.hostUserId !== user.id) {
       room.hostUserId = user.id;
@@ -260,15 +276,13 @@ async function handleJoinRoom(socket, roomId) {
         .update({ host_user_id: user.id })
         .eq("id", roomId);
       console.log(
-        `Assigning ${user.displayName} as the new host of revived room ${roomId}.`
+        `Assigning ${user.displayName} as the new host of revived room ${room.slug}.`
       );
     }
   }
 
-  // Determine final host status *after* potential assignment
   const isHost = room.hostUserId === user.id;
 
-  // Send the initial state to the user *after* all logic is complete
   socket.emit("roomState", getSanitizedRoomState(room, isHost, user));
   if (isNewHost) {
     socket.emit("newChatMessage", {
@@ -280,23 +294,19 @@ async function handleJoinRoom(socket, roomId) {
     socket.emit("newSongPlaying", getAuthoritativeNowPlaying(room));
   }
 
-  // Announce join to others and update lists
   if (!isReconnecting) {
     io.to(roomId).emit("newChatMessage", {
       system: true,
       text: `${user.displayName} has joined the vibe.`,
     });
-    // The generated user list will now correctly show the new host
     const userList = generateUserList(room);
     io.to(roomId).emit("updateUserList", userList);
     io.to(roomId).emit("updateListenerCount", userList.length);
     broadcastLobbyData();
   } else {
-    // On reconnect, just make sure everyone's user list is correct
     io.to(roomId).emit("updateUserList", generateUserList(room));
   }
 }
-
 // ... All other handler functions are unchanged ...
 // from getLiveVibes to the end of the file
 
@@ -461,7 +471,7 @@ async function handleAddYouTubeTrack(socket, roomId, url) {
           videoId: info.id,
           name: info.title,
           artist: info.uploader || info.channel,
-          albumArt: info.thumbnails?.pop()?.url || "/assets/placeholder.svg",
+          albumArt: info.thumbnails?.pop()?.url || "/placeholder.svg",
           duration_ms: info.duration * 1000,
           url: info.url,
           source: "youtube",
@@ -475,7 +485,7 @@ async function handleAddYouTubeTrack(socket, roomId, url) {
         videoId: info.id,
         name: info.title,
         artist: info.uploader || info.channel,
-        albumArt: info.thumbnails?.pop()?.url || "/assets/placeholder.svg",
+       albumArt: info.thumbnails?.pop()?.url || "/placeholder.svg",
         duration_ms: info.duration * 1000,
         url: info.url,
         source: "youtube",
@@ -570,14 +580,19 @@ async function handleCreateRoom(socket, roomData) {
       return socket.emit("error", { message: "Could not process vibe." });
     }
 
+    // +++ CHANGE: Generate the slug +++
+    const slug = generateSlug(roomName);
+
     const { data: newRoom, error: roomError } = await supabase
       .from("rooms")
       .insert({
         name: roomName,
         host_user_id: socket.user.id,
         vibe_id: vibeId,
+        slug: slug, // +++ CHANGE: Save the slug to the database +++
       })
-      .select("id")
+      // +++ CHANGE: Select both id and slug back +++
+      .select("id, slug") 
       .single();
 
     if (roomError) {
@@ -586,9 +601,11 @@ async function handleCreateRoom(socket, roomData) {
     }
 
     const roomId = newRoom.id.toString();
+    const roomSlug = newRoom.slug;
 
     rooms[roomId] = {
       id: roomId,
+      slug: roomSlug, // +++ CHANGE: Store the slug in the in-memory room object +++
       name: roomName,
       vibe: vibe,
       hostUserId: socket.user.id,
@@ -603,15 +620,17 @@ async function handleCreateRoom(socket, roomData) {
     };
 
     console.log(
-      `Room ${roomId} created in DB and memory by ${socket.user.displayName}`
+      `Room ${roomSlug} (ID: ${roomId}) created in DB and memory by ${socket.user.displayName}`
     );
-    socket.emit("roomCreated", { roomId });
+    // +++ CHANGE: Send the slug back to the creator, not the ID +++
+    socket.emit("roomCreated", { slug: roomSlug });
     broadcastLobbyData();
   } catch (error) {
     console.error("An unexpected error occurred in handleCreateRoom:", error);
     socket.emit("error", { message: "An internal server error occurred." });
   }
 }
+
 function playTrackAtIndex(roomId, index) {
   const room = rooms[roomId];
   if (!room) return;
@@ -699,6 +718,7 @@ const getSanitizedPlaylist = (room) => ({
 const getPublicRoomsData = () =>
   Object.values(rooms).map((r) => ({
     id: r.id,
+    slug: r.slug, // <<< THIS IS THE NEWLY ADDED LINE
     name: r.name,
     listenerCount: Object.keys(r.listeners).length,
     nowPlaying: r.nowPlaying,
