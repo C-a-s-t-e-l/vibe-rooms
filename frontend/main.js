@@ -28,22 +28,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- Check Authentication Status on Page Load ---
   // +++ CHANGE: Update fetch URL to point to backend +++
-  fetch(`/api/user`, { credentials: 'include' }) 
-  .then((res) => { 
-    if (!res.ok) return Promise.reject("Not authenticated");
-    return res.json();
-  })
-  .then((user) => {
-    if (user && user.id) {
-      setupLoggedInUI(user);
-    } else {
-      throw new Error("User not found or not authenticated");
-    }
-  })
-  .catch(() => {
-    loggedOutView.style.display = "block";
-    loggedInView.style.display = "none";
-  });
+  fetch(`${BACKEND_URL}/api/user`, { credentials: 'include' })
+    .then((res) => {
+      if (!res.ok) return Promise.reject("Not authenticated");
+      return res.json();
+    })
+    .then((user) => {
+      if (user && user.id) {
+        setupLoggedInUI(user);
+      } else {
+        throw new Error("User not found or not authenticated");
+      }
+    })
+    .catch(() => {
+      loggedOutView.style.display = "block";
+      loggedInView.style.display = "none";
+    });
 
   function setupLoggedInUI(user) {
     loggedOutView.style.display = "none";
