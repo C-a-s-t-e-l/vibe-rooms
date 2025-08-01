@@ -13,30 +13,43 @@ const jwt = require("jsonwebtoken");
 const play = require("play-dl");
 const fs = require("fs"); // We need the file system module
 
-// --- FINAL, WORKING PLAY-DL CONFIGURATION ---
+// --- FINAL, CORRECTED PLAY-DL CONFIGURATION ---
 try {
-  // Read the raw file content, which includes comments and newlines
-  const raw_cookies = fs.readFileSync('cookies.txt', 'utf-8');
-  
-  // --- THIS IS THE FIX ---
-  // We clean the cookie string by removing comment lines and empty lines.
-  const cleaned_cookies = raw_cookies
-    .split('\n') // 1. Split the file into an array of lines
-    .filter(line => !line.startsWith('#') && line.trim() !== '') // 2. Keep only lines that don't start with '#' and are not empty
-    .join('\n'); // 3. Join the clean lines back into a single string
+  // Read the raw cookie file
+  const raw_cookies = fs.readFileSync("cookies.txt", "utf-8");
+
+  // --- THIS IS THE FINAL FIX ---
+  // We must parse the Netscape format into a single-line HTTP Cookie header string.
+  const final_cookie_string = raw_cookies
+    .split("\n") // 1. Split the file into an array of lines
+    .filter((line) => !line.startsWith("#") && line.trim() !== "") // 2. Remove comment and empty lines
+    .map((line) => {
+      // 3. For each valid cookie line...
+      const parts = line.split("\t"); // ...split it by tabs
+      const key = parts[5]; // The cookie name is the 6th part
+      const value = parts[6]; // The cookie value is the 7th part
+      return `${key}=${value}`; // ...format it as "key=value"
+    })
+    .join("; "); // 4. Join all the "key=value" pairs into a SINGLE line, separated by "; "
   // --- END OF FIX ---
 
-  // Now, we provide the clean, valid cookie string to the library.
+  // Now, we provide the clean, single-line, valid cookie string to the library.
   play.setToken({
     youtube: {
-      cookie: cleaned_cookies,
-    }
+      cookie: final_cookie_string,
+    },
   });
-  console.log(">>> play-dl successfully configured with cleaned cookies.");
-
+  console.log(
+    ">>> play-dl successfully configured with correctly formatted cookies."
+  );
 } catch (e) {
-  console.error("!!!!!! FAILED TO CONFIGURE PLAY-DL WITH COOKIES !!!!!!", e.message);
-  console.log("Please ensure 'cookies.txt' exists in the 'backend' folder.");
+  console.error(
+    "!!!!!! FAILED TO CONFIGURE PLAY-DL WITH COOKIES !!!!!!",
+    e.message
+  );
+  console.log(
+    "Please ensure 'cookies.txt' exists and is formatted correctly in the 'backend' folder."
+  );
 }
 // --- END OF CONFIGURATION ---
 
@@ -75,7 +88,7 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// --- Middleware and Routes (NO CHANGES BEYOND THIS POINT) ---
+// --- Middleware and Routes ---
 const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET,
   resave: false,
@@ -218,18 +231,14 @@ io.on("connection", (socket) => {
   socket.on("searchYouTube", (data) => handleSearchYouTube(socket, data));
 });
 
-// --- FINAL, SIMPLIFIED play-dl HANDLERS ---
+// --- HANDLERS (NO LONGER NEED PROXY/COOKIE INFO PASSED) ---
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
   try {
-    const searchOptions = {
+    const searchResults = await play.search(query, {
       limit: 10,
       source: { youtube: "video" },
-    };
-    if (process.env.PROXY_URL) {
-      searchOptions.source.proxy = process.env.PROXY_URL;
-    }
-    const searchResults = await play.search(query, searchOptions);
+    });
     const videoResults = searchResults.map((video) => ({
       videoId: video.id,
       title: video.title || "Untitled",
@@ -248,14 +257,9 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
   try {
-    const infoOptions = {
+    const info = await play.video_info(url, {
       source: { youtube: "video" },
-    };
-    if (process.env.PROXY_URL) {
-      infoOptions.source.proxy = process.env.PROXY_URL;
-    }
-
-    const info = await play.video_info(url, infoOptions);
+    });
     let videosToProcess = [];
     if (info.playlist) {
       videosToProcess = await info.playlist.all_videos();
@@ -303,7 +307,10 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   }
 }
 
-// --- All other handler functions (unchanged) ---
+// ... the rest of your many handler functions (generateUserList, playTrackAtIndex, etc.)
+// are completely unchanged. They can be copied from your existing file.
+// I am including them here for completeness.
+
 const generateUserList = (room) => {
   if (!room) return [];
   return Object.values(room.listeners).map((listener) => ({
