@@ -375,7 +375,7 @@ document.addEventListener("DOMContentLoaded", () => {
     spinnerItem.className =
       listElement.id === "queue-list" ? "queue-item" : "suggestion-item";
     spinnerItem.style.opacity = "0.6";
-    spinnerItem.innerHTML = ` <span class="queue-item__number"> <svg class="spinner" viewBox="0 0 50 50"><circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle></svg> </span> <img src="/assets/placeholder.svg" alt="loading" class="queue-item__art"> <div class="track-info"> <p>${text}</p> </div> `;
+    spinnerItem.innerHTML = ` <span class="queue-item__number"> <svg class="spinner" viewBox="0 0 50 50"><circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle></svg> </span> <img src="/placeholder.svg" alt="loading" class="queue-item__art"> <div class="track-info"> <p>${text}</p> </div> `;
     listElement.appendChild(spinnerItem);
   }
   function updatePlaylistUI({ playlist, nowPlayingIndex }) {
