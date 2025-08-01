@@ -1,4 +1,3 @@
-// server.js
 require("dotenv").config();
 const { createClient } = require("@supabase/supabase-js");
 const express = require("express");
@@ -8,53 +7,46 @@ const path = require("path");
 const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const session = require("express-session");
-// const ytDlpExec = require("yt-dlp-exec");
-const cors = require("cors"); // +++ CHANGE: Import cors
+const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const play = require("play-dl");
-// REMOVED: No longer need undici for a global proxy
-// const { setGlobalDispatcher, ProxyAgent } = require('undici');
 
-const getPlayDLSource = () => {
-  const source = {
-    youtube: "video",
+// --- NEW, ROBUST PLAY-DL CONFIGURATION ---
+// This configures play-dl ONCE at startup.
+play.getFreeClientID().then((clientID) => {
+  const tokenConfig = {
+    youtube: {
+      client_id: clientID,
+    },
+    // This is the crucial part:
+    // We tell play-dl to use our proxy for ANY internal HTTP requests it makes,
+    // including the initial ones to get client info, which prevents the 429 error.
+    fetch: {},
   };
 
   if (process.env.PROXY_URL) {
-    source.proxy = process.env.PROXY_URL;
+    console.log(
+      ">>> Configuring play-dl with proxy for all internal requests."
+    );
+    tokenConfig.fetch.proxy = process.env.PROXY_URL;
   }
 
-  return source;
-};
-
-// REMOVED: The entire global proxy configuration block.
-// This was forcing all traffic (including Supabase calls) through the proxy.
-/*
-if (process.env.PROXY_URL) {
-  try {
-    const proxyAgent = new ProxyAgent(process.env.PROXY_URL);
-    setGlobalDispatcher(proxyAgent);
-    console.log(">>>>> Global proxy configured successfully via undici.");
-  } catch (err) {
-    console.error("!!!!!! FAILED TO CONFIGURE GLOBAL PROXY !!!!!", err);
-  }
-}
-*/
+  play.setToken(tokenConfig);
+});
+// --- END OF NEW CONFIGURATION ---
 
 const app = express();
 const server = http.createServer(app);
 app.set("trust proxy", 1);
 
-// +++ CHANGE START: CORS and Socket.IO configuration for production +++
 const FRONTEND_URL =
   process.env.FRONTEND_URL || "https://vibe-rooms-five.vercel.app";
 
 const corsOptions = {
   origin: FRONTEND_URL,
-  credentials: true, // This allows cookies to be sent from the frontend
+  credentials: true,
 };
 
-// Apply CORS middleware to all Express routes
 app.use(cors(corsOptions));
 
 const io = new Server(server, {
@@ -64,7 +56,6 @@ const io = new Server(server, {
     credentials: true,
   },
 });
-// +++ CHANGE END +++
 
 const PORT = process.env.PORT || 3000;
 const SYNC_INTERVAL = 4000;
@@ -82,18 +73,15 @@ const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // --- Middleware and Routes ---
-// +++ CHANGE START: Production-ready session middleware +++
 const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: true,
-  // proxy: true, // <<< REMOVE THIS LINE
   cookie: {
     secure: process.env.NODE_ENV === "production",
     sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
   },
 });
-// +++ CHANGE END +++
 
 app.use(sessionMiddleware);
 app.use(passport.initialize());
@@ -104,7 +92,6 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      // CHANGE THIS LINE:
       callbackURL: `${
         process.env.RENDER_EXTERNAL_URL || "http://localhost:3000"
       }/auth/google/callback`,
@@ -117,20 +104,18 @@ passport.use(
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
 
-// This part is less critical now as Vercel serves the files, but it's fine for local dev
 app.use(express.static(path.join(__dirname, "../frontend")));
 
 const ensureAuthenticated = (req, res, next) => {
   if (req.isAuthenticated()) return next();
-  // In a real API, you'd send a 401 status. Redirecting is fine here.
   res.redirect(FRONTEND_URL);
 };
 
 const generateSlug = (name) => {
   const baseSlug = name
     .toLowerCase()
-    .replace(/ /g, "-") // Replace spaces with -
-    .replace(/[^\w-]+/g, ""); // Remove all non-word chars except -
+    .replace(/ /g, "-")
+    .replace(/[^\w-]+/g, "");
 
   const randomString = Math.random().toString(36).substring(2, 8);
   return `${baseSlug}-${randomString}`;
@@ -145,82 +130,63 @@ app.get(
   passport.authenticate("google", {
     failureRedirect: FRONTEND_URL,
     session: false,
-  }), // Note: session: false
+  }),
   (req, res) => {
-    // We got the user from Google. Now create a JWT.
     const payload = {
       id: req.user.id,
       displayName: req.user.displayName,
       avatar: req.user.photos[0].value,
     };
-
-    // Sign the token. Use SESSION_SECRET as the JWT secret.
     const token = jwt.sign(payload, process.env.SESSION_SECRET, {
       expiresIn: "1d",
     });
-
-    // Redirect the user back to the frontend, passing the token as a query parameter.
     res.redirect(`${FRONTEND_URL}?token=${token}`);
   }
 );
 
-// --- ADD NEW MIDDLEWARE TO VERIFY THE TOKEN ---
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1]; // Bearer TOKEN
-
-  if (token == null) return res.sendStatus(401); // if there isn't any token
-
+  const token = authHeader && authHeader.split(" ")[1];
+  if (token == null) return res.sendStatus(401);
   jwt.verify(token, process.env.SESSION_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403); // if token is no longer valid
+    if (err) return res.sendStatus(403);
     req.user = user;
-    next(); // proceed to the next middleware
+    next();
   });
 };
+
 app.get("/logout", (req, res, next) => {
   req.logout((err) => {
     if (err) return next(err);
-    res.redirect(FRONTEND_URL); // Redirect to the Vercel frontend
+    res.redirect(FRONTEND_URL);
   });
 });
+
 app.get("/api/user", verifyToken, (req, res) => {
-  // If verifyToken succeeds, req.user will be populated from the JWT.
   res.json(req.user);
 });
 
-// These routes will now primarily be hit by Vercel's serverless functions
-// or client-side routing, but we keep them for direct access checks.
 app.get("/room/:roomId", ensureAuthenticated, (req, res) => {
   const room = rooms[req.params.roomId];
   if (room) {
-    // We no longer send a file, we just confirm the room exists.
-    // The frontend handles rendering the page.
     res.status(200).json({ message: "Room exists." });
   } else {
     res.status(404).json({ message: "Room not found." });
   }
 });
 
-// Catch-all is no longer needed as Vercel handles the frontend routing
-// app.get("*", (req, res) => {
-//   res.sendFile(path.join(__dirname, "../frontend/views", "index.html"));
-// });
-
 io.engine.use(sessionMiddleware);
 io.engine.use(passport.initialize());
 io.engine.use(passport.session());
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
-
   if (!token) {
     return next(new Error("unauthorized: no token provided"));
   }
-
   jwt.verify(token, process.env.SESSION_SECRET, (err, user) => {
     if (err) {
       return next(new Error("unauthorized: invalid token"));
     }
-    // Attach the user object from the token to the socket object
     socket.user = user;
     next();
   });
@@ -228,14 +194,10 @@ io.use((socket, next) => {
 
 // --- Socket Event Listeners ---
 io.on("connection", (socket) => {
-  socket.on("getRooms", () => {
-    broadcastLobbyData();
-  });
+  socket.on("getRooms", () => broadcastLobbyData());
   socket.on("createRoom", (roomData) => handleCreateRoom(socket, roomData));
   socket.on("joinRoom", (roomId) => handleJoinRoom(socket, roomId));
-  socket.on("leaveRoom", ({ roomId }) => {
-    processUserLeave(socket, roomId);
-  });
+  socket.on("leaveRoom", ({ roomId }) => processUserLeave(socket, roomId));
   socket.on("sendMessage", (msg) => handleSendMessage(socket, msg));
   socket.on("hostPlaybackChange", (data) =>
     handleHostPlaybackChange(socket, data)
@@ -263,14 +225,12 @@ io.on("connection", (socket) => {
 });
 
 // --- Handler Functions ---
-// (All your handler functions from generateUserList to handleSendMessage remain completely unchanged)
-// ...
 const generateUserList = (room) => {
   if (!room) return [];
   return Object.values(room.listeners).map((listener) => ({
     id: listener.user.id,
     displayName: listener.user.displayName,
-    avatar: listener.user.avatar, // <<< CHANGED THIS LINE
+    avatar: listener.user.avatar,
     isHost: listener.user.id === room.hostUserId,
   }));
 };
@@ -290,7 +250,7 @@ const getSanitizedRoomState = (room, isHost, user) => {
   safeRoomState.currentUser = {
     name: user.displayName,
     id: user.id,
-    avatar: user.avatar, // <<< CHANGED THIS LINE
+    avatar: user.avatar,
   };
   safeRoomState.nowPlaying = getAuthoritativeNowPlaying(room);
   safeRoomState.playlistState = getSanitizedPlaylist(room);
@@ -301,18 +261,15 @@ const getSanitizedRoomState = (room, isHost, user) => {
 };
 
 async function handleJoinRoom(socket, slug) {
-  // First, try to find the room in our fast in-memory object.
   let room = Object.values(rooms).find((r) => r.slug === slug);
 
-  // If the room isn't in memory, try to load it from the database.
-  // This makes the app resilient to server restarts.
   if (!room) {
     console.log(
       `Room with slug "${slug}" not found in memory. Checking database...`
     );
     const { data: dbRoom, error } = await supabase
       .from("rooms")
-      .select("*, vibe_id(name, type)") // Fetch room and its related vibe info
+      .select("*, vibe_id(name, type)")
       .eq("slug", slug)
       .single();
 
@@ -325,7 +282,6 @@ async function handleJoinRoom(socket, slug) {
       return;
     }
 
-    // Reconstruct the in-memory room object from the database record.
     console.log(
       `Successfully loaded room "${dbRoom.name}" (Slug: ${slug}) from DB.`
     );
@@ -338,7 +294,7 @@ async function handleJoinRoom(socket, slug) {
       vibe: { name: dbRoom.vibe_id.name, type: dbRoom.vibe_id.type },
       hostUserId: dbRoom.host_user_id,
       listeners: {},
-      playlist: [], // A full implementation could also load the playlist from the DB here
+      playlist: [],
       nowPlayingIndex: -1,
       suggestions: [],
       nowPlaying: null,
@@ -346,12 +302,9 @@ async function handleJoinRoom(socket, slug) {
       deletionTimer: null,
       isPlaying: false,
     };
-    // Assign the newly created room to our local 'room' variable for the rest of this function.
     room = rooms[roomId];
   }
 
-  // From here, the rest of the function uses the 'room' object, which is now guaranteed to exist.
-  // We use the numeric 'roomId' for internal Socket.IO operations.
   const roomId = room.id;
   const user = socket.user;
   const isReconnecting = !!reconnectionTimers[user.id];
@@ -364,7 +317,6 @@ async function handleJoinRoom(socket, slug) {
     delete reconnectionTimers[user.id];
   }
 
-  // Revive room if it was about to be deleted
   if (room.deletionTimer) {
     console.log(
       `User ${user.displayName} joined an empty room ${room.slug}. Cancelling deletion timer.`
@@ -377,7 +329,6 @@ async function handleJoinRoom(socket, slug) {
   room.listeners[user.id] = { socketId: socket.id, user: user };
   userSockets[socket.id] = { user: user, roomId };
 
-  // --- Definitive Host Assignment Logic ---
   let isNewHost = false;
   if (Object.keys(room.listeners).length === 1) {
     if (room.hostUserId !== user.id) {
@@ -393,10 +344,7 @@ async function handleJoinRoom(socket, slug) {
     }
   }
 
-  // Determine final host status *after* potential assignment
   const isHost = room.hostUserId === user.id;
-
-  // Send the initial state to the user *after* all logic is complete
   socket.emit("roomState", getSanitizedRoomState(room, isHost, user));
   if (isNewHost) {
     socket.emit("newChatMessage", {
@@ -408,7 +356,6 @@ async function handleJoinRoom(socket, slug) {
     socket.emit("newSongPlaying", getAuthoritativeNowPlaying(room));
   }
 
-  // Announce join to others and update lists
   if (!isReconnecting) {
     io.to(roomId).emit("newChatMessage", {
       system: true,
@@ -419,12 +366,9 @@ async function handleJoinRoom(socket, slug) {
     io.to(roomId).emit("updateListenerCount", userList.length);
     broadcastLobbyData();
   } else {
-    // On reconnect, just make sure everyone's user list is correct
     io.to(roomId).emit("updateUserList", generateUserList(room));
   }
 }
-// ... All other handler functions are unchanged ...
-// from getLiveVibes to the end of the file
 
 async function getLiveVibes() {
   const { data, error } = await supabase.rpc("get_live_vibe_counts");
@@ -457,7 +401,6 @@ async function processUserLeave(socket, roomId) {
 
   const user = socket.user;
   console.log(`Processing leave for ${user.displayName} from room ${roomId}`);
-
   const wasHost = room.hostUserId === user.id;
   delete room.listeners[user.id];
   delete userSockets[socket.id];
@@ -468,7 +411,6 @@ async function processUserLeave(socket, roomId) {
   });
 
   const remainingListeners = Object.values(room.listeners);
-
   if (wasHost && remainingListeners.length > 0) {
     const newHost = remainingListeners[0];
     room.hostUserId = newHost.user.id;
@@ -513,7 +455,6 @@ async function processUserLeave(socket, roomId) {
       }
     }, 30 * 1000);
   }
-
   broadcastLobbyData();
 }
 
@@ -537,15 +478,8 @@ function handleLeaveRoom(socket) {
 
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
-
   try {
-    // Use the helper to get our source object with the proxy
-    const source = getPlayDLSource();
-
-    const searchResults = await play.search(query, {
-      source: source, // Pass the source object here
-      limit: 10,
-    });
+    const searchResults = await play.search(query, { limit: 10 });
 
     const videoResults = searchResults.map((video) => ({
       videoId: video.id,
@@ -567,20 +501,11 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const isHost = socket.user.id === room.hostUserId;
 
   try {
-    // Use the helper to get our source object with the proxy
-    const source = getPlayDLSource();
+    // With our new global config, we don't need to pass proxy options here anymore.
+    const info = await play.video_info(url);
 
-    // REMOVED the separate play.validate() call.
-    // We now rely on video_info() to validate the link. If it's invalid,
-    // it will throw an error and be caught by the catch block. This ensures
-    // the proxy is used for the validation request.
-    const info = await play.video_info(url, { 
-        source: source
-    });
-    
-    // Add a check to ensure we got actual video details back
     if (!info || !info.video_details) {
-        throw new Error(`URL did not resolve to a valid video: ${url}`);
+      throw new Error(`URL did not resolve to a valid video: ${url}`);
     }
 
     let videosToProcess = [];
@@ -593,8 +518,8 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     } else {
       videosToProcess.push(info.video_details);
     }
-    
-    const tracksToAdd = videosToProcess.map(video => ({
+
+    const tracksToAdd = videosToProcess.map((video) => ({
       videoId: video.id,
       name: video.title || "Untitled",
       artist: video.channel ? video.channel.name : "Unknown Artist",
@@ -613,7 +538,7 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
         io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
       }
     } else {
-      const suggestions = tracksToAdd.map(track => ({
+      const suggestions = tracksToAdd.map((track) => ({
         ...track,
         suggestionId: `sugg_${Date.now()}_${Math.random()}`,
         suggester: { id: socket.user.id, name: socket.user.displayName },
@@ -621,14 +546,12 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       room.suggestions.push(...suggestions);
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
-
   } catch (e) {
-    // This block now handles all errors, including invalid links.
-    console.error(`Error in handleAddYouTubeTrack for URL "${url}":`, e.message);
-
-    // Tell the client explicitly that the add operation failed so it can remove the spinner.
+    console.error(
+      `Error in handleAddYouTubeTrack for URL "${url}":`,
+      e.message
+    );
     socket.emit("addTrackFailed", { url: url });
-
     socket.emit("newChatMessage", {
       system: true,
       text: "Sorry, that link could not be processed or is private.",
@@ -651,8 +574,8 @@ function handleDeleteTrack(socket, { roomId, indexToDelete }) {
     io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
   }
 }
+
 async function findOrCreateVibe(vibeData) {
-  // First, try to find the vibe by name.
   let { data: existingVibe, error: findError } = await supabase
     .from("vibes")
     .select("id")
@@ -660,17 +583,14 @@ async function findOrCreateVibe(vibeData) {
     .single();
 
   if (findError && findError.code !== "PGRST116") {
-    // PGRST116 means 'not found'
     console.error("Error finding vibe:", findError);
     return null;
   }
 
-  // If the vibe exists, return its ID.
   if (existingVibe) {
     return existingVibe.id;
   }
 
-  // If it doesn't exist, it must be a custom one. Let's create it.
   if (vibeData.type === "CUSTOM") {
     let { data: newVibe, error: createError } = await supabase
       .from("vibes")
@@ -684,8 +604,6 @@ async function findOrCreateVibe(vibeData) {
     }
     return newVibe.id;
   }
-
-  // If it's a preset that wasn't found, something is wrong.
   return null;
 }
 
@@ -701,18 +619,15 @@ async function handleCreateRoom(socket, roomData) {
       return socket.emit("error", { message: "Could not process vibe." });
     }
 
-    // +++ CHANGE: Generate the slug +++
     const slug = generateSlug(roomName);
-
     const { data: newRoom, error: roomError } = await supabase
       .from("rooms")
       .insert({
         name: roomName,
         host_user_id: socket.user.id,
         vibe_id: vibeId,
-        slug: slug, // +++ CHANGE: Save the slug to the database +++
+        slug: slug,
       })
-      // +++ CHANGE: Select both id and slug back +++
       .select("id, slug")
       .single();
 
@@ -723,10 +638,9 @@ async function handleCreateRoom(socket, roomData) {
 
     const roomId = newRoom.id.toString();
     const roomSlug = newRoom.slug;
-
     rooms[roomId] = {
       id: roomId,
-      slug: roomSlug, // +++ CHANGE: Store the slug in the in-memory room object +++
+      slug: roomSlug,
       name: roomName,
       vibe: vibe,
       hostUserId: socket.user.id,
@@ -743,7 +657,6 @@ async function handleCreateRoom(socket, roomData) {
     console.log(
       `Room ${roomSlug} (ID: ${roomId}) created in DB and memory by ${socket.user.displayName}`
     );
-    // +++ CHANGE: Send the slug back to the creator, not the ID +++
     socket.emit("roomCreated", { slug: roomSlug });
     broadcastLobbyData();
   } catch (error) {
@@ -762,7 +675,7 @@ function playTrackAtIndex(roomId, index) {
     room.isPlaying = false;
     room.nowPlayingIndex = -1;
     io.to(roomId).emit("newSongPlaying", null);
-    broadcastLobbyData(); // Use the new function
+    broadcastLobbyData();
     return;
   }
   room.nowPlayingIndex = index;
@@ -772,7 +685,7 @@ function playTrackAtIndex(roomId, index) {
   room.nowPlaying = { track, startTime: Date.now(), position: 0 };
   room.isPlaying = true;
   io.to(roomId).emit("newSongPlaying", getAuthoritativeNowPlaying(room));
-  broadcastLobbyData(); // Use the new function
+  broadcastLobbyData();
   io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
   room.songEndTimer = setTimeout(
     () => playNextSong(roomId),
@@ -784,12 +697,14 @@ function playTrackAtIndex(roomId, index) {
     }
   }, SYNC_INTERVAL);
 }
+
 function playNextSong(roomId) {
   const room = rooms[roomId];
   if (!room) return;
   const nextIndex = room.nowPlayingIndex + 1;
   playTrackAtIndex(roomId, nextIndex);
 }
+
 function playPrevSong(roomId) {
   const room = rooms[roomId];
   if (!room) return;
@@ -798,6 +713,7 @@ function playPrevSong(roomId) {
     playTrackAtIndex(roomId, prevIndex);
   }
 }
+
 const getAuthoritativeNowPlaying = (room) => {
   if (!room || !room.nowPlaying) return null;
   const authoritativeState = {
@@ -811,6 +727,7 @@ const getAuthoritativeNowPlaying = (room) => {
   }
   return authoritativeState;
 };
+
 function handleApproveSuggestion(socket, { roomId, suggestionId }) {
   const room = rooms[roomId];
   if (!room || socket.user.id !== room.hostUserId) return;
@@ -832,19 +749,22 @@ function handleApproveSuggestion(socket, { roomId, suggestionId }) {
   }
   io.to(roomId).emit("suggestionsUpdated", room.suggestions);
 }
+
 const getSanitizedPlaylist = (room) => ({
   playlist: room.playlist,
   nowPlayingIndex: room.nowPlayingIndex,
 });
+
 const getPublicRoomsData = () =>
   Object.values(rooms).map((r) => ({
     id: r.id,
-    slug: r.slug, // <<< THIS IS THE NEWLY ADDED LINE
+    slug: r.slug,
     name: r.name,
     listenerCount: Object.keys(r.listeners).length,
     nowPlaying: r.nowPlaying,
     vibe: r.vibe,
   }));
+
 function handleRejectSuggestion(socket, { roomId, suggestionId }) {
   const room = rooms[roomId];
   if (!room || socket.user.id !== room.hostUserId) return;
@@ -856,6 +776,7 @@ function handleRejectSuggestion(socket, { roomId, suggestionId }) {
     io.to(roomId).emit("suggestionsUpdated", room.suggestions);
   }
 }
+
 function handleHostPlaybackChange(socket, data) {
   const room = rooms[data.roomId];
   if (!room || socket.user.id !== room.hostUserId || !room.nowPlaying) return;
@@ -893,15 +814,14 @@ function handleHostPlaybackChange(socket, data) {
   }
   io.to(data.roomId).emit("syncPulse", getAuthoritativeNowPlaying(room));
 }
+
 function handleSendMessage(socket, msg) {
   if (!socket.user) return;
-
-  // Logic to resize Google avatar is no longer needed as we store the direct URL
   const message = {
     text: msg.text,
     user: socket.user.displayName,
     userId: socket.user.id,
-    avatar: socket.user.avatar, // <<< CHANGED THIS LINE (and removed resizing logic)
+    avatar: socket.user.avatar,
   };
   io.to(msg.roomId).emit("newChatMessage", message);
 }
