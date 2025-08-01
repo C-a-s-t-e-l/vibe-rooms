@@ -15,22 +15,27 @@ const fs = require("fs"); // We need the file system module
 
 // --- FINAL, WORKING PLAY-DL CONFIGURATION ---
 try {
-  // --- THIS IS THE CORRECTED PATH ---
-  // Since Render's root directory is 'backend', the script runs from there.
-  // The path is simply the filename itself.
-  const cookie_string = fs.readFileSync("cookies.txt", "utf-8");
+  // Read the raw file content, which includes comments and newlines
+  const raw_cookies = fs.readFileSync('cookies.txt', 'utf-8');
+  
+  // --- THIS IS THE FIX ---
+  // We clean the cookie string by removing comment lines and empty lines.
+  const cleaned_cookies = raw_cookies
+    .split('\n') // 1. Split the file into an array of lines
+    .filter(line => !line.startsWith('#') && line.trim() !== '') // 2. Keep only lines that don't start with '#' and are not empty
+    .join('\n'); // 3. Join the clean lines back into a single string
+  // --- END OF FIX ---
 
+  // Now, we provide the clean, valid cookie string to the library.
   play.setToken({
     youtube: {
-      cookie: cookie_string,
-    },
+      cookie: cleaned_cookies,
+    }
   });
-  console.log(">>> play-dl successfully configured with cookies.");
+  console.log(">>> play-dl successfully configured with cleaned cookies.");
+
 } catch (e) {
-  console.error(
-    "!!!!!! FAILED TO CONFIGURE PLAY-DL WITH COOKIES !!!!!!",
-    e.message
-  );
+  console.error("!!!!!! FAILED TO CONFIGURE PLAY-DL WITH COOKIES !!!!!!", e.message);
   console.log("Please ensure 'cookies.txt' exists in the 'backend' folder.");
 }
 // --- END OF CONFIGURATION ---
