@@ -411,49 +411,38 @@ function handleLeaveRoom(socket) {
 // --- CORRECTED AND DEBUG-ENHANCED HANDLERS ---
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
-  console.log(`[DEBUG] Starting youtube-dl-exec search for: "${query}"`);
   try {
-    const options = { dumpJson: true };
+    const command = `ytsearch10:${query}`;
+    const options = {
+      dumpJson: true,
+      // --- THIS IS THE FIX ---
+      // We are adding a standard browser User-Agent to make our request look legitimate
+      // to the Bright Data proxy, which will prevent the 403 Forbidden error.
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+    };
+
     if (process.env.PROXY_URL) {
       options.proxy = process.env.PROXY_URL;
     }
-    const command = `ytsearch10:${query}`;
+    
     const result = await ytDlpExec(command, options);
-
-    console.log(
-      `[DEBUG] youtube-dl-exec STDOUT for "${query}":\n---start---\n${result.stdout}\n---end---`
-    );
-    if (result.stderr) {
-      console.log(
-        `[DEBUG] youtube-dl-exec STDERR for "${query}":\n---start---\n${result.stderr}\n---end---`
-      );
-    }
-    if (!result.stdout || result.stdout.trim() === "") {
-      console.log(
-        `[INFO] youtube-dl-exec search for "${query}" returned no results in stdout.`
-      );
+    
+    if (!result.stdout || result.stdout.trim() === '') {
       socket.emit("searchYouTubeResults", []);
       return;
     }
-    const videos = result.stdout
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-    const videoResults = videos.map((video) => ({
+
+    const videos = result.stdout.trim().split('\n').map(line => JSON.parse(line));
+    const videoResults = videos.map(video => ({
       videoId: video.id,
       title: video.title || "Untitled",
-      artist: video.channel || "Unknown Artist",
-      thumbnail: video.thumbnail,
+      artist: video.channel || 'Unknown Artist',
+      thumbnail: video.thumbnail
     }));
-    console.log(
-      `[SUCCESS] Found ${videoResults.length} results for "${query}".`
-    );
     socket.emit("searchYouTubeResults", videoResults);
+
   } catch (error) {
-    console.error(
-      `[CRITICAL] youtube-dl-exec search crashed for query "${query}":`,
-      error
-    );
+    console.error(`yt-dlp search error for query "${query}":`, error);
     socket.emit("searchYouTubeResults", []);
   }
 }
@@ -462,36 +451,34 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
   if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
-  console.log(`[DEBUG] Starting youtube-dl-exec info fetch for: "${url}"`);
   try {
-    const options = { dumpJson: true, noPlaylist: true };
+    const options = {
+      dumpJson: true,
+      noPlaylist: true,
+      // --- THIS IS THE FIX ---
+      // We add the same User-Agent here for consistency.
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+    };
+
     if (process.env.PROXY_URL) {
       options.proxy = process.env.PROXY_URL;
     }
+
     const result = await ytDlpExec(url, options);
-    console.log(
-      `[DEBUG] youtube-dl-exec STDOUT for "${url}":\n---start---\n${result.stdout}\n---end---`
-    );
-    if (result.stderr) {
-      console.log(
-        `[DEBUG] youtube-dl-exec STDERR for "${url}":\n---start---\n${result.stderr}\n---end---`
-      );
-    }
+    
     const video = JSON.parse(result.stdout);
+    
     const track = {
       videoId: video.id,
       name: video.title || "Untitled",
       artist: video.channel || "Unknown Artist",
       albumArt: video.thumbnail || "/placeholder.svg",
       duration_ms: video.duration * 1000,
-      url:
-        video.formats.find(
-          (f) => f.format_id === "251" || f.format_id === "140"
-        )?.url || video.url,
+      url: video.formats.find(f => f.format_id === '251' || f.format_id === '140')?.url || video.url,
       source: "youtube",
     };
     if (!track.url) {
-      throw new Error("No playable audio format found for this video.");
+        throw new Error("No playable audio format found for this video.");
     }
     if (isHost) {
       room.playlist.push(track);
@@ -510,15 +497,9 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
   } catch (e) {
-    console.error(
-      `[CRITICAL] youtube-dl-exec crash in handleAddYouTubeTrack for URL "${url}":`,
-      e
-    );
+    console.error(`yt-dlp error in handleAddYouTubeTrack for URL "${url}":`, e);
     socket.emit("addTrackFailed", { url: url });
-    socket.emit("newChatMessage", {
-      system: true,
-      text: "Sorry, that link could not be processed, is private, or is not a valid video.",
-    });
+    socket.emit("newChatMessage", { system: true, text: "Sorry, that link could not be processed, is private, or is not a valid video.", });
   }
 }
 
