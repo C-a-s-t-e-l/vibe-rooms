@@ -14,13 +14,17 @@ const jwt = require('jsonwebtoken');
 const play = require('play-dl');
 const { setGlobalDispatcher, ProxyAgent } = require('undici');
 
-if (process.env.PROXY_URL) {
-  // Create a new proxy agent from our URL
-  const proxyAgent = new ProxyAgent(process.env.PROXY_URL);
-  // Set this agent as the global dispatcher for all fetch requests
-  setGlobalDispatcher(proxyAgent);
-  console.log(">>>>> Proxy configured for all requests.");
-}
+const getPlayDLSource = () => {
+  const source = {
+    youtube: 'video'
+  };
+
+  if (process.env.PROXY_URL) {
+    source.proxy = process.env.PROXY_URL;
+  }
+  
+  return source;
+};
 
 // This part is still needed for YouTube searches
 play.getFreeClientID().then((clientID) => {
@@ -508,19 +512,19 @@ function handleLeaveRoom(socket) {
 
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
-  
-  // No caching for now, to ensure we're testing live requests
-  
+
   try {
-    // No special options needed. The global dispatcher handles the proxy automatically.
+    // Use the helper to get our source object with the proxy
+    const source = getPlayDLSource();
+
     const searchResults = await play.search(query, {
-      source: { youtube: 'video' },
+      source: source, // Pass the source object here
       limit: 10
     });
 
     const videoResults = searchResults.map(video => ({
       videoId: video.id,
-      title: video.title,
+      title: video.title || "Untitled",
       artist: video.channel ? video.channel.name : 'Unknown Artist',
       thumbnail: video.thumbnails[0].url
     }));
@@ -536,15 +540,13 @@ async function handleSearchYouTube(socket, { query }) {
 
 async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
-  if (!room) {
-    // Safety check in case the room doesn't exist
-    return;
-  }
-
+  if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
 
   try {
-    // 1. Validate the URL to ensure it's a YouTube link
+    // Use the helper to get our source object with the proxy
+    const source = getPlayDLSource();
+
     const validation = await play.validate(url);
     if (!validation || !validation.includes('youtube')) {
        return socket.emit("newChatMessage", {
@@ -553,26 +555,21 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       });
     }
 
-    // 2. Fetch the video/playlist information
-    // play.video_info is powerful and can handle both single videos and playlists
-    const info = await play.video_info(url);
+    const info = await play.video_info(url, { 
+        source: source // Pass the source object here
+    });
     
     let videosToProcess = [];
-
-    // 3. Check if the result is a playlist
     if (info.playlist) {
-      // It's a playlist, let the user know and get all videos
       socket.emit("newChatMessage", {
         system: true,
-        text: `Processing playlist "${info.playlist.title}"... this may take a moment.`,
+        text: `Processing playlist "${info.playlist.title}"...`,
       });
       videosToProcess = await info.playlist.all_videos();
     } else {
-      // It's a single video
       videosToProcess.push(info.video_details);
     }
     
-    // 4. Map the raw video data to our application's track format
     const tracksToAdd = videosToProcess.map(video => ({
       videoId: video.id,
       name: video.title || "Untitled",
@@ -583,21 +580,15 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       source: "youtube",
     }));
 
-    // 5. Handle the logic based on whether the user is a host or guest
     if (isHost) {
       room.playlist.push(...tracksToAdd);
-      
-      // If nothing is playing, start the playlist from the first new song
       if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
-        // Find the index of the first song we just added
         const startIndex = room.playlist.length - tracksToAdd.length;
         playTrackAtIndex(roomId, startIndex);
       } else {
-        // Otherwise, just send a playlist update to all clients
         io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
       }
     } else {
-      // User is a guest, so add their tracks as suggestions
       const suggestions = tracksToAdd.map(track => ({
         ...track,
         suggestionId: `sugg_${Date.now()}_${Math.random()}`,
