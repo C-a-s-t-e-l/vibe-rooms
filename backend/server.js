@@ -13,6 +13,7 @@ const cors = require("cors"); // +++ CHANGE: Import cors
 
 const app = express();
 const server = http.createServer(app);
+app.set('trust proxy', 1); 
 
 // +++ CHANGE START: CORS and Socket.IO configuration for production +++
 const FRONTEND_URL =
@@ -56,10 +57,10 @@ const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: true,
-  proxy: true, // Required because Render sits behind a proxy
+  // proxy: true, // <<< REMOVE THIS LINE
   cookie: {
-    secure: process.env.NODE_ENV === "production", // Set to true in production for HTTPS
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // 'none' for cross-site cookies, 'lax' for local dev
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
   },
 });
 // +++ CHANGE END +++
