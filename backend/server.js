@@ -487,13 +487,24 @@ function handleLeaveRoom(socket) {
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
   try {
-    const searchResults = await play.search(query, { limit: 10 });
+    // Define options for this specific search call
+    const searchOptions = {
+      limit: 10
+    };
 
-    const videoResults = searchResults.map((video) => ({
+    // If a proxy is configured, add it to the options for THIS call
+    if (process.env.PROXY_URL) {
+      searchOptions.source = { youtube: 'video' };
+      searchOptions.proxy = process.env.PROXY_URL;
+    }
+
+    const searchResults = await play.search(query, searchOptions);
+
+    const videoResults = searchResults.map(video => ({
       videoId: video.id,
       title: video.title || "Untitled",
-      artist: video.channel ? video.channel.name : "Unknown Artist",
-      thumbnail: video.thumbnails[0].url,
+      artist: video.channel ? video.channel.name : 'Unknown Artist',
+      thumbnail: video.thumbnails[0].url
     }));
 
     socket.emit("searchYouTubeResults", videoResults);
@@ -509,9 +520,17 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const isHost = socket.user.id === room.hostUserId;
 
   try {
-    // With our new global config, we don't need to pass proxy options here anymore.
-    const info = await play.video_info(url);
+    // Define options for this specific info call
+    const infoOptions = {};
 
+    // If a proxy is configured, add it to the options for THIS call
+    if (process.env.PROXY_URL) {
+        infoOptions.source = { youtube: 'video' };
+        infoOptions.proxy = process.env.PROXY_URL;
+    }
+
+    const info = await play.video_info(url, infoOptions);
+    
     if (!info || !info.video_details) {
       throw new Error(`URL did not resolve to a valid video: ${url}`);
     }
@@ -526,8 +545,8 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     } else {
       videosToProcess.push(info.video_details);
     }
-
-    const tracksToAdd = videosToProcess.map((video) => ({
+    
+    const tracksToAdd = videosToProcess.map(video => ({
       videoId: video.id,
       name: video.title || "Untitled",
       artist: video.channel ? video.channel.name : "Unknown Artist",
@@ -546,7 +565,7 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
         io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
       }
     } else {
-      const suggestions = tracksToAdd.map((track) => ({
+      const suggestions = tracksToAdd.map(track => ({
         ...track,
         suggestionId: `sugg_${Date.now()}_${Math.random()}`,
         suggester: { id: socket.user.id, name: socket.user.displayName },
@@ -555,10 +574,7 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
   } catch (e) {
-    console.error(
-      `Error in handleAddYouTubeTrack for URL "${url}":`,
-      e.message
-    );
+    console.error(`Error in handleAddYouTubeTrack for URL "${url}":`, e.message);
     socket.emit("addTrackFailed", { url: url });
     socket.emit("newChatMessage", {
       system: true,
