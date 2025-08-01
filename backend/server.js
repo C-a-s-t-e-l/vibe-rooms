@@ -487,15 +487,17 @@ function handleLeaveRoom(socket) {
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
   try {
-    // FINAL ATTEMPT: Simplest possible options structure
+    // Correctly structured options object
     const searchOptions = {
       limit: 10,
-      source: { youtube: 'video' } // Specify the source
+      source: {
+        youtube: 'video'
+      }
     };
 
-    // Add proxy as a top-level property if it exists
+    // If a proxy is configured, add it INSIDE the 'source' object
     if (process.env.PROXY_URL) {
-      searchOptions.proxy = process.env.PROXY_URL;
+      searchOptions.source.proxy = process.env.PROXY_URL;
     }
 
     const searchResults = await play.search(query, searchOptions);
@@ -521,19 +523,20 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const isHost = socket.user.id === room.hostUserId;
 
   try {
-    // FINAL ATTEMPT: Simplest possible options structure
+    // Correctly structured options object
     const infoOptions = {
-        source: { youtube: 'video' } // Specify the source
+      source: {
+        youtube: 'video'
+      }
     };
     
-    // Add proxy as a top-level property if it exists
+    // If a proxy is configured, add it INSIDE the 'source' object
     if (process.env.PROXY_URL) {
-        infoOptions.proxy = process.env.PROXY_URL;
+      infoOptions.source.proxy = process.env.PROXY_URL;
     }
 
     const info = await play.video_info(url, infoOptions);
     
-    // ... rest of the function is the same ...
     if (!info || !info.video_details) {
       throw new Error(`URL did not resolve to a valid video: ${url}`);
     }
