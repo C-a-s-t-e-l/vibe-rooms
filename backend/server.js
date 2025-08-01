@@ -442,22 +442,32 @@ async function handleSearchYouTube(socket, { query }) {
 
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
+
+  console.log(`[DEBUG] Starting yt-dlp search for: "${query}"`);
+
   try {
     const options = { dumpJson: true };
     if (process.env.PROXY_URL) {
       options.proxy = process.env.PROXY_URL;
     }
     const command = `ytsearch10:${query}`;
+    
     const result = await ytDlpExec(command, options);
 
-    // --- THIS IS THE FIX ---
-    // If yt-dlp returns nothing, its stdout will be empty. We must handle this case.
+    // --- TEMPORARY DEBUG LOGGING ---
+    // We will log everything we get back from the command.
+    console.log(`[DEBUG] yt-dlp STDOUT for "${query}":\n---start---\n${result.stdout}\n---end---`);
+    
+    if (result.stderr) {
+        console.log(`[DEBUG] yt-dlp STDERR for "${query}":\n---start---\n${result.stderr}\n---end---`);
+    }
+    // --- END OF DEBUG LOGGING ---
+
     if (!result.stdout || result.stdout.trim() === '') {
-      console.log(`yt-dlp search for "${query}" returned no results.`);
-      socket.emit("searchYouTubeResults", []); // Send back an empty array
+      console.log(`[INFO] yt-dlp search for "${query}" returned no results in stdout.`);
+      socket.emit("searchYouTubeResults", []);
       return;
     }
-    // --- END OF FIX ---
 
     const videos = result.stdout.trim().split('\n').map(line => JSON.parse(line));
     const videoResults = videos.map(video => ({
@@ -466,17 +476,23 @@ async function handleSearchYouTube(socket, { query }) {
       artist: video.channel || 'Unknown Artist',
       thumbnail: video.thumbnail
     }));
+
+    console.log(`[SUCCESS] Found ${videoResults.length} results for "${query}".`);
     socket.emit("searchYouTubeResults", videoResults);
+
   } catch (error) {
-    console.error(`yt-dlp search error for query "${query}":`, error);
+    console.error(`[CRITICAL] yt-dlp search crashed for query "${query}":`, error);
     socket.emit("searchYouTubeResults", []);
   }
 }
 
-async function handleAddYouTubeTrack(socket, { roomId, url }) {
+aasync function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
   if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
+
+  console.log(`[DEBUG] Starting yt-dlp info fetch for: "${url}"`);
+
   try {
     const options = { dumpJson: true, noPlaylist: true };
     if (process.env.PROXY_URL) {
@@ -485,11 +501,15 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     
     const result = await ytDlpExec(url, options);
 
-    // --- THIS IS THE FIX ---
-    // We need to parse the JSON from the command's stdout.
-    const video = JSON.parse(result.stdout);
-    // --- END OF FIX ---
+    // --- TEMPORARY DEBUG LOGGING ---
+    console.log(`[DEBUG] yt-dlp STDOUT for "${url}":\n---start---\n${result.stdout}\n---end---`);
+    if (result.stderr) {
+        console.log(`[DEBUG] yt-dlp STDERR for "${url}":\n---start---\n${result.stderr}\n---end---`);
+    }
+    // --- END OF DEBUG LOGGING ---
 
+    const video = JSON.parse(result.stdout);
+    
     const track = {
       videoId: video.id,
       name: video.title || "Untitled",
@@ -519,7 +539,7 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
   } catch (e) {
-    console.error(`yt-dlp error in handleAddYouTubeTrack for URL "${url}":`, e);
+    console.error(`[CRITICAL] yt-dlp crash in handleAddYouTubeTrack for URL "${url}":`, e);
     socket.emit("addTrackFailed", { url: url });
     socket.emit("newChatMessage", { system: true, text: "Sorry, that link could not be processed, is private, or is not a valid video.", });
   }
