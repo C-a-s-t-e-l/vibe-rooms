@@ -14,20 +14,19 @@ const jwt = require('jsonwebtoken');
 const play = require('play-dl');
 
 play.getFreeClientID().then((clientID) => {
-  const tokenConfig = {
+  play.setToken({
     youtube: {
       client_id: clientID
     }
-  };
-
-  // If the PROXY_URL is set, add it to the configuration object
-  if (process.env.PROXY_URL) {
-    tokenConfig.proxy = process.env.PROXY_URL;
-  }
-  
-  // Set the token and proxy in a single, correct call
-  play.setToken(tokenConfig);
+  });
 });
+
+// Block 2: Configure the proxy if the URL exists
+if (process.env.PROXY_URL) {
+  play.setEngine({
+    proxy: process.env.PROXY_URL
+  });
+}
 
 const app = express();
 const server = http.createServer(app);
