@@ -10,23 +10,26 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const session = require("express-session");
 // const ytDlpExec = require("yt-dlp-exec");
 const cors = require("cors"); // +++ CHANGE: Import cors
-const jwt = require('jsonwebtoken'); 
-const play = require('play-dl');
-const { setGlobalDispatcher, ProxyAgent } = require('undici');
+const jwt = require("jsonwebtoken");
+const play = require("play-dl");
+// REMOVED: No longer need undici for a global proxy
+// const { setGlobalDispatcher, ProxyAgent } = require('undici');
 
 const getPlayDLSource = () => {
   const source = {
-    youtube: 'video'
+    youtube: "video",
   };
 
   if (process.env.PROXY_URL) {
     source.proxy = process.env.PROXY_URL;
   }
-  
+
   return source;
 };
 
-
+// REMOVED: The entire global proxy configuration block.
+// This was forcing all traffic (including Supabase calls) through the proxy.
+/*
 if (process.env.PROXY_URL) {
   try {
     const proxyAgent = new ProxyAgent(process.env.PROXY_URL);
@@ -36,10 +39,11 @@ if (process.env.PROXY_URL) {
     console.error("!!!!!! FAILED TO CONFIGURE GLOBAL PROXY !!!!!", err);
   }
 }
+*/
 
 const app = express();
 const server = http.createServer(app);
-app.set('trust proxy', 1); 
+app.set("trust proxy", 1);
 
 // +++ CHANGE START: CORS and Socket.IO configuration for production +++
 const FRONTEND_URL =
@@ -85,8 +89,8 @@ const sessionMiddleware = session({
   saveUninitialized: true,
   // proxy: true, // <<< REMOVE THIS LINE
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
   },
 });
 // +++ CHANGE END +++
@@ -101,7 +105,9 @@ passport.use(
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       // CHANGE THIS LINE:
-      callbackURL: `${process.env.RENDER_EXTERNAL_URL || 'http://localhost:3000'}/auth/google/callback`,
+      callbackURL: `${
+        process.env.RENDER_EXTERNAL_URL || "http://localhost:3000"
+      }/auth/google/callback`,
     },
     (accessToken, refreshToken, profile, done) => {
       return done(null, profile);
@@ -136,28 +142,32 @@ app.get(
 );
 app.get(
   "/auth/google/callback",
-  passport.authenticate("google", { failureRedirect: FRONTEND_URL, session: false }), // Note: session: false
+  passport.authenticate("google", {
+    failureRedirect: FRONTEND_URL,
+    session: false,
+  }), // Note: session: false
   (req, res) => {
     // We got the user from Google. Now create a JWT.
     const payload = {
       id: req.user.id,
       displayName: req.user.displayName,
-      avatar: req.user.photos[0].value
+      avatar: req.user.photos[0].value,
     };
-    
+
     // Sign the token. Use SESSION_SECRET as the JWT secret.
-    const token = jwt.sign(payload, process.env.SESSION_SECRET, { expiresIn: '1d' });
+    const token = jwt.sign(payload, process.env.SESSION_SECRET, {
+      expiresIn: "1d",
+    });
 
     // Redirect the user back to the frontend, passing the token as a query parameter.
     res.redirect(`${FRONTEND_URL}?token=${token}`);
   }
 );
 
-
 // --- ADD NEW MIDDLEWARE TO VERIFY THE TOKEN ---
 const verifyToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1]; // Bearer TOKEN
 
   if (token == null) return res.sendStatus(401); // if there isn't any token
 
@@ -292,12 +302,14 @@ const getSanitizedRoomState = (room, isHost, user) => {
 
 async function handleJoinRoom(socket, slug) {
   // First, try to find the room in our fast in-memory object.
-  let room = Object.values(rooms).find(r => r.slug === slug);
+  let room = Object.values(rooms).find((r) => r.slug === slug);
 
   // If the room isn't in memory, try to load it from the database.
   // This makes the app resilient to server restarts.
   if (!room) {
-    console.log(`Room with slug "${slug}" not found in memory. Checking database...`);
+    console.log(
+      `Room with slug "${slug}" not found in memory. Checking database...`
+    );
     const { data: dbRoom, error } = await supabase
       .from("rooms")
       .select("*, vibe_id(name, type)") // Fetch room and its related vibe info
@@ -305,15 +317,20 @@ async function handleJoinRoom(socket, slug) {
       .single();
 
     if (error || !dbRoom) {
-      console.error(`Error fetching room "${slug}" from DB or it does not exist.`, error);
+      console.error(
+        `Error fetching room "${slug}" from DB or it does not exist.`,
+        error
+      );
       socket.emit("roomNotFound");
       return;
     }
 
     // Reconstruct the in-memory room object from the database record.
-    console.log(`Successfully loaded room "${dbRoom.name}" (Slug: ${slug}) from DB.`);
+    console.log(
+      `Successfully loaded room "${dbRoom.name}" (Slug: ${slug}) from DB.`
+    );
     const roomId = dbRoom.id.toString();
-    
+
     rooms[roomId] = {
       id: roomId,
       slug: dbRoom.slug,
@@ -330,9 +347,9 @@ async function handleJoinRoom(socket, slug) {
       isPlaying: false,
     };
     // Assign the newly created room to our local 'room' variable for the rest of this function.
-    room = rooms[roomId]; 
+    room = rooms[roomId];
   }
-  
+
   // From here, the rest of the function uses the 'room' object, which is now guaranteed to exist.
   // We use the numeric 'roomId' for internal Socket.IO operations.
   const roomId = room.id;
@@ -340,14 +357,18 @@ async function handleJoinRoom(socket, slug) {
   const isReconnecting = !!reconnectionTimers[user.id];
 
   if (isReconnecting) {
-    console.log(`User ${user.displayName} reconnected to room ${room.slug} within grace period.`);
+    console.log(
+      `User ${user.displayName} reconnected to room ${room.slug} within grace period.`
+    );
     clearTimeout(reconnectionTimers[user.id]);
     delete reconnectionTimers[user.id];
   }
 
   // Revive room if it was about to be deleted
   if (room.deletionTimer) {
-    console.log(`User ${user.displayName} joined an empty room ${room.slug}. Cancelling deletion timer.`);
+    console.log(
+      `User ${user.displayName} joined an empty room ${room.slug}. Cancelling deletion timer.`
+    );
     clearTimeout(room.deletionTimer);
     room.deletionTimer = null;
   }
@@ -366,7 +387,9 @@ async function handleJoinRoom(socket, slug) {
         .from("rooms")
         .update({ host_user_id: user.id })
         .eq("id", roomId);
-      console.log(`Assigning ${user.displayName} as the new host of revived room ${room.slug}.`);
+      console.log(
+        `Assigning ${user.displayName} as the new host of revived room ${room.slug}.`
+      );
     }
   }
 
@@ -521,24 +544,22 @@ async function handleSearchYouTube(socket, { query }) {
 
     const searchResults = await play.search(query, {
       source: source, // Pass the source object here
-      limit: 10
+      limit: 10,
     });
 
-    const videoResults = searchResults.map(video => ({
+    const videoResults = searchResults.map((video) => ({
       videoId: video.id,
       title: video.title || "Untitled",
-      artist: video.channel ? video.channel.name : 'Unknown Artist',
-      thumbnail: video.thumbnails[0].url
+      artist: video.channel ? video.channel.name : "Unknown Artist",
+      thumbnail: video.thumbnails[0].url,
     }));
 
     socket.emit("searchYouTubeResults", videoResults);
-
   } catch (error) {
     console.error(`play-dl search error for query "${query}":`, error);
     socket.emit("searchYouTubeResults", []);
   }
 }
-
 
 async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
@@ -550,17 +571,17 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     const source = getPlayDLSource();
 
     const validation = await play.validate(url);
-    if (!validation || !validation.includes('youtube')) {
-       return socket.emit("newChatMessage", {
+    if (!validation || !validation.includes("youtube")) {
+      return socket.emit("newChatMessage", {
         system: true,
         text: "Sorry, that doesn't look like a valid YouTube link.",
       });
     }
 
-    const info = await play.video_info(url, { 
-        source: source // Pass the source object here
+    const info = await play.video_info(url, {
+      source: source, // Pass the source object here
     });
-    
+
     let videosToProcess = [];
     if (info.playlist) {
       socket.emit("newChatMessage", {
@@ -571,8 +592,8 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     } else {
       videosToProcess.push(info.video_details);
     }
-    
-    const tracksToAdd = videosToProcess.map(video => ({
+
+    const tracksToAdd = videosToProcess.map((video) => ({
       videoId: video.id,
       name: video.title || "Untitled",
       artist: video.channel ? video.channel.name : "Unknown Artist",
@@ -591,7 +612,7 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
         io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
       }
     } else {
-      const suggestions = tracksToAdd.map(track => ({
+      const suggestions = tracksToAdd.map((track) => ({
         ...track,
         suggestionId: `sugg_${Date.now()}_${Math.random()}`,
         suggester: { id: socket.user.id, name: socket.user.displayName },
@@ -599,7 +620,6 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       room.suggestions.push(...suggestions);
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
-
   } catch (e) {
     console.error("play-dl error in handleAddYouTubeTrack:", e);
     socket.emit("newChatMessage", {
@@ -686,7 +706,7 @@ async function handleCreateRoom(socket, roomData) {
         slug: slug, // +++ CHANGE: Save the slug to the database +++
       })
       // +++ CHANGE: Select both id and slug back +++
-      .select("id, slug") 
+      .select("id, slug")
       .single();
 
     if (roomError) {
@@ -868,7 +888,7 @@ function handleHostPlaybackChange(socket, data) {
 }
 function handleSendMessage(socket, msg) {
   if (!socket.user) return;
-  
+
   // Logic to resize Google avatar is no longer needed as we store the direct URL
   const message = {
     text: msg.text,
