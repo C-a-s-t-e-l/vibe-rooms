@@ -13,27 +13,25 @@ const play = require("play-dl");
 
 // --- NEW, ROBUST PLAY-DL CONFIGURATION ---
 // This configures play-dl ONCE at startup.
+const playDLSource = {
+  youtube: "video" // Use 'video' source for YouTube
+};
+
+if (process.env.PROXY_URL) {
+  console.log(">>> Configuring play-dl with proxy for all internal requests.");
+  playDLSource.proxy = process.env.PROXY_URL;
+}
+
+// Set the source globally for all play-dl operations.
+play.setSource(playDLSource);
+
+// Now that the proxy is configured, we can safely get the client ID.
 play.getFreeClientID().then((clientID) => {
-  const tokenConfig = {
+  play.setToken({
     youtube: {
       client_id: clientID,
-      // ----> THIS IS THE FIX <----
-      // The library expects this property to exist, even if it's empty.
-      // Providing it as an empty string prevents the internal 'split' error.
-      cookie: "" 
-    },
-    // This is the crucial part:
-    // We tell play-dl to use our proxy for ANY internal HTTP requests it makes,
-    // including the initial ones to get client info, which prevents the 429 error.
-    fetch: {} 
-  };
-
-  if (process.env.PROXY_URL) {
-    console.log(">>> Configuring play-dl with proxy for all internal requests.");
-    tokenConfig.fetch.proxy = process.env.PROXY_URL;
-  }
-
-  play.setToken(tokenConfig);
+    }
+  });
 });
 // --- END OF NEW CONFIGURATION ---
 
