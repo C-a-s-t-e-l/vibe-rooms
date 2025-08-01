@@ -185,20 +185,28 @@ async function handleSearchYouTube(socket, { query }) {
     const command = `ytsearch10:${query}`;
     const options = {
       dumpJson: true,
-      cookies: "cookies.txt",
-      // --- THE FINAL FIX ---
-      // Add a Referer header to make the request look like it's coming from a browser
-      // navigating the YouTube site. This is the last piece of the disguise.
-      addHeader: ["Referer:https://www.youtube.com"],
+      cookies: "cookies.txt", // Keep cookies to satisfy YouTube
     };
+
+    // --- THIS IS THE FINAL FIX ---
+    // We pass the proxy as an environment variable, which uses a more standard
+    // connection method that is less likely to be blocked by the proxy provider.
     if (process.env.PROXY_URL) {
-      options.proxy = process.env.PROXY_URL;
+      options.env = {
+        HTTPS_PROXY: process.env.PROXY_URL,
+        HTTP_PROXY: process.env.PROXY_URL,
+      };
     }
+    // We NO LONGER use the options.proxy flag.
+    // --- END OF FIX ---
+
     const result = await ytDlpExec(command, options);
+
     if (!result.stdout || result.stdout.trim() === "") {
       socket.emit("searchYouTubeResults", []);
       return;
     }
+
     const videos = result.stdout
       .trim()
       .split("\n")
@@ -224,16 +232,23 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     const options = {
       dumpJson: true,
       noPlaylist: true,
-      cookies: "cookies.txt",
-      // --- THE FINAL FIX ---
-      // Adding the Referer here as well for consistency.
-      addHeader: ["Referer:https://www.youtube.com"],
+      cookies: "cookies.txt", // Keep cookies
     };
+
+    // --- THIS IS THE FINAL FIX ---
+    // Applying the same environment variable strategy here.
     if (process.env.PROXY_URL) {
-      options.proxy = process.env.PROXY_URL;
+      options.env = {
+        HTTPS_PROXY: process.env.PROXY_URL,
+        HTTP_PROXY: process.env.PROXY_URL,
+      };
     }
+    // --- END OF FIX ---
+
     const result = await ytDlpExec(url, options);
+
     const video = JSON.parse(result.stdout);
+
     const track = {
       videoId: video.id,
       name: video.title || "Untitled",
