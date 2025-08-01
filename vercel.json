@@ -2,10 +2,6 @@
   "version": 2,
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "https://vibes-fqic.onrender.com/api/:path*"
-    },
-    {
       "source": "/room/:roomId",
       "destination": "/room.html"
     },
