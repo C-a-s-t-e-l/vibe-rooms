@@ -1,3 +1,4 @@
+// server.js
 require("dotenv").config();
 const { createClient } = require("@supabase/supabase-js");
 const express = require("express");
@@ -9,8 +10,9 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const session = require("express-session");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
-const ytDlpExec = require("yt-dlp-exec").default; // ADD THIS LINE
-
+// --- THIS IS THE CORRECTED IMPORT ---
+const ytDlpExec = require("yt-dlp-exec");
+// --- END OF CORRECTION ---
 
 const app = express();
 const server = http.createServer(app);
@@ -102,6 +104,7 @@ app.get(
   "/auth/google",
   passport.authenticate("google", { scope: ["profile", "email"] })
 );
+
 app.get(
   "/auth/google/callback",
   passport.authenticate("google", {
@@ -239,17 +242,12 @@ const getSanitizedRoomState = (room, isHost, user) => {
 
 async function handleJoinRoom(socket, slug) {
   let room = Object.values(rooms).find((r) => r.slug === slug);
-
   if (!room) {
-    console.log(
-      `Room with slug "${slug}" not found in memory. Checking database...`
-    );
     const { data: dbRoom, error } = await supabase
       .from("rooms")
       .select("*, vibe_id(name, type)")
       .eq("slug", slug)
       .single();
-
     if (error || !dbRoom) {
       console.error(
         `Error fetching room "${slug}" from DB or it does not exist.`,
@@ -258,12 +256,7 @@ async function handleJoinRoom(socket, slug) {
       socket.emit("roomNotFound");
       return;
     }
-
-    console.log(
-      `Successfully loaded room "${dbRoom.name}" (Slug: ${slug}) from DB.`
-    );
     const roomId = dbRoom.id.toString();
-
     rooms[roomId] = {
       id: roomId,
       slug: dbRoom.slug,
@@ -281,31 +274,20 @@ async function handleJoinRoom(socket, slug) {
     };
     room = rooms[roomId];
   }
-
   const roomId = room.id;
   const user = socket.user;
   const isReconnecting = !!reconnectionTimers[user.id];
-
   if (isReconnecting) {
-    console.log(
-      `User ${user.displayName} reconnected to room ${room.slug} within grace period.`
-    );
     clearTimeout(reconnectionTimers[user.id]);
     delete reconnectionTimers[user.id];
   }
-
   if (room.deletionTimer) {
-    console.log(
-      `User ${user.displayName} joined an empty room ${room.slug}. Cancelling deletion timer.`
-    );
     clearTimeout(room.deletionTimer);
     room.deletionTimer = null;
   }
-
   socket.join(roomId);
   room.listeners[user.id] = { socketId: socket.id, user: user };
   userSockets[socket.id] = { user: user, roomId };
-
   let isNewHost = false;
   if (Object.keys(room.listeners).length === 1) {
     if (room.hostUserId !== user.id) {
@@ -315,12 +297,8 @@ async function handleJoinRoom(socket, slug) {
         .from("rooms")
         .update({ host_user_id: user.id })
         .eq("id", roomId);
-      console.log(
-        `Assigning ${user.displayName} as the new host of revived room ${room.slug}.`
-      );
     }
   }
-
   const isHost = room.hostUserId === user.id;
   socket.emit("roomState", getSanitizedRoomState(room, isHost, user));
   if (isNewHost) {
@@ -332,7 +310,6 @@ async function handleJoinRoom(socket, slug) {
   if (room.nowPlaying) {
     socket.emit("newSongPlaying", getAuthoritativeNowPlaying(room));
   }
-
   if (!isReconnecting) {
     io.to(roomId).emit("newChatMessage", {
       system: true,
@@ -375,18 +352,14 @@ async function processUserLeave(socket, roomId) {
   if (!room || !socket.user || !room.listeners[socket.user.id]) {
     return;
   }
-
   const user = socket.user;
-  console.log(`Processing leave for ${user.displayName} from room ${roomId}`);
   const wasHost = room.hostUserId === user.id;
   delete room.listeners[user.id];
   delete userSockets[socket.id];
-
   io.to(roomId).emit("newChatMessage", {
     system: true,
     text: `${user.displayName} has left the vibe.`,
   });
-
   const remainingListeners = Object.values(room.listeners);
   if (wasHost && remainingListeners.length > 0) {
     const newHost = remainingListeners[0];
@@ -395,10 +368,6 @@ async function processUserLeave(socket, roomId) {
       .from("rooms")
       .update({ host_user_id: newHost.user.id })
       .eq("id", roomId);
-    console.log(
-      `Host migrated in DB for room ${roomId} to ${newHost.user.displayName}`
-    );
-
     const newHostSocket = io.sockets.sockets.get(newHost.socketId);
     if (newHostSocket) {
       newHostSocket.emit("hostAssigned");
@@ -406,24 +375,20 @@ async function processUserLeave(socket, roomId) {
         system: true,
         text: "👑 You are now the host of this room!",
       });
-      newHostSocket.broadcast.to(roomId).emit("newChatMessage", {
-        system: true,
-        text: `👑 ${newHost.user.displayName} is now the host.`,
-      });
+      newHostSocket.broadcast
+        .to(roomId)
+        .emit("newChatMessage", {
+          system: true,
+          text: `👑 ${newHost.user.displayName} is now the host.`,
+        });
     }
   }
-
   const updatedUserList = generateUserList(room);
   io.to(roomId).emit("updateUserList", updatedUserList);
   io.to(roomId).emit("updateListenerCount", updatedUserList.length);
-
   if (remainingListeners.length === 0) {
-    console.log(`Room ${roomId} is empty. Setting 30-second deletion timer.`);
     room.deletionTimer = setTimeout(async () => {
       if (rooms[roomId] && Object.keys(rooms[roomId].listeners).length === 0) {
-        console.log(
-          `Room ${roomId} deletion timer fired. Deleting from DB and memory.`
-        );
         if (room.songEndTimer) clearTimeout(room.songEndTimer);
         if (room.syncInterval) clearInterval(room.syncInterval);
         delete rooms[roomId];
@@ -438,49 +403,34 @@ async function processUserLeave(socket, roomId) {
 function handleLeaveRoom(socket) {
   const userSocketInfo = userSockets[socket.id];
   if (!userSocketInfo) return;
-
   const { user, roomId } = userSocketInfo;
-  console.log(
-    `User ${user.displayName} disconnected. Starting grace period timer for room ${roomId}.`
-  );
-
   reconnectionTimers[user.id] = setTimeout(() => {
-    console.log(
-      `Grace period expired for ${user.displayName}. Processing leave.`
-    );
     processUserLeave(socket, roomId);
     delete reconnectionTimers[user.id];
   }, RECONNECTION_GRACE_PERIOD);
 }
 
+// --- NEW yt-dlp-exec HANDLERS ---
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
-
   try {
-    const options = {
-      dumpJson: true, // Get metadata as JSON
-    };
-
+    const options = { dumpJson: true };
     if (process.env.PROXY_URL) {
       options.proxy = process.env.PROXY_URL;
     }
-
-    // yt-dlp syntax for searching and limiting to 10 results
     const command = `ytsearch10:${query}`;
     const result = await ytDlpExec(command, options);
-
-    // The output for a search is multiple JSON objects, one per line.
-    const videos = result.stdout.trim().split('\n').map(line => JSON.parse(line));
-
-    const videoResults = videos.map(video => ({
+    const videos = result.stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const videoResults = videos.map((video) => ({
       videoId: video.id,
       title: video.title || "Untitled",
-      artist: video.channel || 'Unknown Artist',
-      thumbnail: video.thumbnail // yt-dlp provides the best thumbnail directly
+      artist: video.channel || "Unknown Artist",
+      thumbnail: video.thumbnail,
     }));
-
     socket.emit("searchYouTubeResults", videoResults);
-
   } catch (error) {
     console.error(`yt-dlp search error for query "${query}":`, error);
     socket.emit("searchYouTubeResults", []);
@@ -491,34 +441,27 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
   if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
-
   try {
-    const options = {
-      dumpJson: true,
-      noPlaylist: true, // We will handle playlists manually if needed
-    };
-
+    const options = { dumpJson: true, noPlaylist: true };
     if (process.env.PROXY_URL) {
       options.proxy = process.env.PROXY_URL;
     }
-
     const video = await ytDlpExec(url, options);
-
     const track = {
       videoId: video.id,
       name: video.title || "Untitled",
       artist: video.channel || "Unknown Artist",
       albumArt: video.thumbnail || "/placeholder.svg",
       duration_ms: video.duration * 1000,
-      // We need to find a playable format. webm or m4a are common.
-      url: video.formats.find(f => f.format_id === '251' || f.format_id === '140')?.url || video.url,
+      url:
+        video.formats.find(
+          (f) => f.format_id === "251" || f.format_id === "140"
+        )?.url || video.url,
       source: "youtube",
     };
-    
     if (!track.url) {
-        throw new Error("No playable audio format found for this video.");
+      throw new Error("No playable audio format found for this video.");
     }
-
     if (isHost) {
       room.playlist.push(track);
       if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
@@ -567,23 +510,19 @@ async function findOrCreateVibe(vibeData) {
     .select("id")
     .eq("name", vibeData.name)
     .single();
-
   if (findError && findError.code !== "PGRST116") {
     console.error("Error finding vibe:", findError);
     return null;
   }
-
   if (existingVibe) {
     return existingVibe.id;
   }
-
   if (vibeData.type === "CUSTOM") {
     let { data: newVibe, error: createError } = await supabase
       .from("vibes")
       .insert({ name: vibeData.name, type: "CUSTOM" })
       .select("id")
       .single();
-
     if (createError) {
       console.error("Error creating custom vibe:", createError);
       return null;
@@ -598,13 +537,11 @@ async function handleCreateRoom(socket, roomData) {
   if (!roomName || !vibe || !vibe.name || !vibe.type) {
     return socket.emit("error", { message: "Invalid room data provided." });
   }
-
   try {
     const vibeId = await findOrCreateVibe(vibe);
     if (!vibeId) {
       return socket.emit("error", { message: "Could not process vibe." });
     }
-
     const slug = generateSlug(roomName);
     const { data: newRoom, error: roomError } = await supabase
       .from("rooms")
@@ -616,12 +553,10 @@ async function handleCreateRoom(socket, roomData) {
       })
       .select("id, slug")
       .single();
-
     if (roomError) {
       console.error("Error creating room in DB:", roomError);
       return socket.emit("error", { message: "Failed to create room." });
     }
-
     const roomId = newRoom.id.toString();
     const roomSlug = newRoom.slug;
     rooms[roomId] = {
@@ -639,10 +574,6 @@ async function handleCreateRoom(socket, roomData) {
       deletionTimer: null,
       isPlaying: false,
     };
-
-    console.log(
-      `Room ${roomSlug} (ID: ${roomId}) created in DB and memory by ${socket.user.displayName}`
-    );
     socket.emit("roomCreated", { slug: roomSlug });
     broadcastLobbyData();
   } catch (error) {
