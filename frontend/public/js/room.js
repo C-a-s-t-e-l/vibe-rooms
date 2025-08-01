@@ -1,7 +1,13 @@
-// public/js/room.js (Final Polish: Click-outside-to-close Search)
+// public/js/room.js
 
 document.addEventListener("DOMContentLoaded", () => {
-  // All setup, state, and utility functions remain the same...
+  // +++ CHANGE START: Define backend URL and update socket connection +++
+  const BACKEND_URL = "https://vibes-fqic.onrender.com";
+  const socket = io(BACKEND_URL, {
+    withCredentials: true, // This is crucial for sending cookies (session) across domains
+  });
+  // +++ CHANGE END +++
+
   const formatTime = (ms) => {
     if (!ms || isNaN(ms)) return "0:00";
     const totalSeconds = Math.floor(ms / 1000);
@@ -9,9 +15,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const seconds = totalSeconds % 60;
     return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
   };
-  const socket = io();
-  const currentRoomSlug = window.location.pathname.split("/").pop();
-let currentRoomId = null;
+
+  const currentRoomId = window.location.pathname.split("/").pop();
   let nowPlayingInterval;
   let isHost = false,
     audioContextUnlocked = false,
@@ -38,10 +43,7 @@ let currentRoomId = null;
   audioUnlockOverlay.addEventListener("click", unlockAudio);
   setupSocketListeners();
   setupUIEventListeners();
-  socket.emit("joinRoom", currentRoomSlug);
-
-  // --- SOCKET LISTENERS (No changes in this step) ---
-  // --- In public/js/room.js ---
+  socket.emit("joinRoom", currentRoomId);
 
   function setupSocketListeners() {
     socket.on("roomState", (data) => {
@@ -50,8 +52,6 @@ let currentRoomId = null;
         window.location.href = "/";
         return;
       }
-
-      currentRoomId = data.id; 
 
       document.title = data.name;
 
@@ -124,7 +124,7 @@ let currentRoomId = null;
       document
         .getElementById("host-controls-wrapper")
         .classList.remove("is-guest");
-      
+
       updatePlaylistUI(currentPlaylistState);
       updateSuggestionsUI(currentSuggestions);
     });
@@ -140,8 +140,6 @@ let currentRoomId = null;
     socket.on("searchYouTubeResults", (results) => {
       updateSearchResultsUI(results);
     });
-
-    // *** THE FIX: Handle dedicated updates for the user list and count ***
     socket.on("updateUserList", (users) => {
       updateUserListUI(users);
     });
@@ -150,7 +148,7 @@ let currentRoomId = null;
     });
   }
 
-  // --- UI EVENT LISTENERS ---
+  // ... (The rest of the file from setupUIEventListeners to the end is unchanged) ...
   function setupUIEventListeners() {
     // Playback and chat listeners are unchanged...
     playPauseBtn.addEventListener("click", () => {
@@ -221,8 +219,6 @@ let currentRoomId = null;
       }
 
       socket.emit("addYouTubeTrack", { roomId: currentRoomId, url: url });
-
-      // *** THE CHANGE: Add toast notification ***
       showToast(isHost ? "Added to playlist!" : "Suggestion sent!");
 
       inputEl.value = "";
@@ -245,19 +241,16 @@ let currentRoomId = null;
         socket.emit("searchYouTube", { query });
         updateSearchResultsUI(null, true);
       } else {
-        // If search is submitted empty, just hide results
         searchResults.style.display = "none";
       }
     });
 
-    // *** THE FIX: Global click listener to close search results ***
     document.addEventListener("click", (e) => {
-      // If the click is NOT on the search input AND NOT inside the search results container
       if (
         !searchInput.contains(e.target) &&
         !searchResults.contains(e.target)
       ) {
-        searchResults.style.display = "none"; // Hide the results
+        searchResults.style.display = "none";
       }
     });
     const tabButtons = document.querySelectorAll(".tab-btn");
@@ -280,7 +273,6 @@ let currentRoomId = null;
     });
   }
 
-  // --- PLAYER EVENT HANDLERS (Unchanged) ---
   nativeAudioPlayer.onplay = () => {
     updatePlayPauseIcon(true);
     const newStartTime = Date.now() - nativeAudioPlayer.currentTime * 1000;
@@ -295,9 +287,6 @@ let currentRoomId = null;
     clearInterval(nowPlayingInterval);
     if (isHost) socket.emit("skipTrack", { roomId: currentRoomId });
   };
-
-  // --- UI RENDERING ---
-
   function updateSearchResultsUI(results, isLoading = false) {
     const resultsList = document.getElementById("search-results");
     resultsList.innerHTML = "";
@@ -333,11 +322,7 @@ let currentRoomId = null;
           roomId: currentRoomId,
           url: youtubeUrl,
         });
-
-        // *** THE CHANGE: Add toast notification ***
         showToast(isHost ? "Added to playlist!" : "Suggestion sent!");
-
-        // Clear search
         document.getElementById("search-input").value = "";
         resultsList.innerHTML = "";
         resultsList.style.display = "none";
@@ -353,10 +338,9 @@ let currentRoomId = null;
     toast.textContent = message;
     container.appendChild(toast);
 
-    // Automatically remove the toast element from the DOM after the animation
     setTimeout(() => {
       toast.remove();
-    }, 4000); // Should match the animation duration
+    }, 4000);
   }
 
   function updateUserListUI(users) {
@@ -365,7 +349,7 @@ let currentRoomId = null;
     userList.innerHTML = "";
     userCountDisplay.textContent = `(${users.length})`;
 
-    users.sort((a, b) => b.isHost - a.isHost); // Ensure host is always at the top
+    users.sort((a, b) => b.isHost - a.isHost);
 
     users.forEach((user) => {
       const userItem = document.createElement("div");
@@ -381,8 +365,6 @@ let currentRoomId = null;
       userList.appendChild(userItem);
     });
   }
-
-  // All other rendering functions are unchanged...
   function addSpinnerItem(listElement, text = "Loading...") {
     if (listElement.querySelector(".system-message"))
       listElement.innerHTML = "";

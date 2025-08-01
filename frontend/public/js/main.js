@@ -1,7 +1,10 @@
 // public/js/main.js
 
 document.addEventListener("DOMContentLoaded", () => {
-  const socket = io();
+  // +++ CHANGE START: Define backend URL and update socket connection +++
+  const BACKEND_URL = "https://vibes-fqic.onrender.com";
+  const socket = io(BACKEND_URL, { withCredentials: true });
+  // +++ CHANGE END +++
 
   // --- Core DOM Elements ---
   const navActions = document.querySelector(".nav-actions");
@@ -22,19 +25,35 @@ document.addEventListener("DOMContentLoaded", () => {
   const modalCreateBtn = document.getElementById("modal-create-btn");
 
   // --- Check Authentication Status on Page Load ---
-  fetch("/api/user")
-    .then((res) => res.json())
+  // +++ CHANGE: Update fetch URL to point to backend +++
+  fetch(`${BACKEND_URL}/api/user`, { credentials: "include" })
+    .then((res) => {
+      if (!res.ok) {
+        // If the response is not OK (e.g., 401), treat as logged out
+        return Promise.reject("Not authenticated");
+      }
+      return res.json();
+    })
     .then((user) => {
       if (user && user.id) {
         setupLoggedInUI(user);
+        // Update the login link to be the backend auth link
+        const loginLink = document.querySelector('a[href="/auth/google"]');
+        if (loginLink) {
+          loginLink.href = `${BACKEND_URL}/auth/google`;
+        }
       } else {
-        loggedOutView.style.display = "block";
-        loggedInView.style.display = "none";
+        throw new Error("User not found");
       }
     })
     .catch(() => {
       loggedOutView.style.display = "block";
       loggedInView.style.display = "none";
+      // Update the login link to be the backend auth link
+      const loginLink = document.querySelector('a[href="/auth/google"]');
+      if (loginLink) {
+        loginLink.href = `${BACKEND_URL}/auth/google`;
+      }
     });
 
   /**
@@ -45,9 +64,10 @@ document.addEventListener("DOMContentLoaded", () => {
     loggedOutView.style.display = "none";
     loggedInView.style.display = "block";
 
+    // +++ CHANGE: Logout link points to backend +++
     navActions.innerHTML = `
             <p class="nav-link">Welcome, ${user.displayName}!</p>
-            <a href="/logout" class="btn btn-secondary">Log Out</a>
+            <a href="${BACKEND_URL}/logout" class="btn btn-secondary">Log Out</a>
         `;
 
     // --- ALL LOGGED-IN LOGIC NOW LIVES INSIDE THIS FUNCTION SCOPE ---
@@ -151,7 +171,9 @@ document.addEventListener("DOMContentLoaded", () => {
                             </div>
                         </div>
                     `;
-         roomCard.addEventListener("click", () => (window.location.href = `/room/${room.slug}`));
+          roomCard.addEventListener("click", () => {
+            window.location.href = `/room/${room.id}`;
+          });
           roomsGrid.appendChild(roomCard);
         });
       }
@@ -198,10 +220,9 @@ document.addEventListener("DOMContentLoaded", () => {
       renderVibeTags(vibes);
       renderFilteredRooms();
     });
-    socket.on("roomCreated", ({ slug }) => {
-  // We now receive the slug
-  window.location.href = `/room/${slug}`;
-});
+    socket.on("roomCreated", ({ roomId }) => {
+      window.location.href = `/room/${roomId}`;
+    });
 
     // Initial fetch of rooms
     socket.emit("getRooms");
