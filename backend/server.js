@@ -12,7 +12,17 @@ const ytDlpExec = require("yt-dlp-exec");
 const cors = require("cors"); // +++ CHANGE: Import cors
 const jwt = require('jsonwebtoken'); 
 const play = require('play-dl');
+const { setGlobalDispatcher, ProxyAgent } = require('undici');
 
+if (process.env.PROXY_URL) {
+  // Create a new proxy agent from our URL
+  const proxyAgent = new ProxyAgent(process.env.PROXY_URL);
+  // Set this agent as the global dispatcher for all fetch requests
+  setGlobalDispatcher(proxyAgent);
+  console.log(">>>>> Proxy configured for all requests.");
+}
+
+// This part is still needed for YouTube searches
 play.getFreeClientID().then((clientID) => {
   play.setToken({
     youtube: {
@@ -20,13 +30,6 @@ play.getFreeClientID().then((clientID) => {
     }
   });
 });
-
-// Block 2: Configure the proxy if the URL exists
-if (process.env.PROXY_URL) {
-  play.setEngine({
-    proxy: process.env.PROXY_URL
-  });
-}
 
 const app = express();
 const server = http.createServer(app);
@@ -506,7 +509,10 @@ function handleLeaveRoom(socket) {
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
   
+  // No caching for now, to ensure we're testing live requests
+  
   try {
+    // No special options needed. The global dispatcher handles the proxy automatically.
     const searchResults = await play.search(query, {
       source: { youtube: 'video' },
       limit: 10
@@ -515,7 +521,7 @@ async function handleSearchYouTube(socket, { query }) {
     const videoResults = searchResults.map(video => ({
       videoId: video.id,
       title: video.title,
-      artist: video.channel.name,
+      artist: video.channel ? video.channel.name : 'Unknown Artist',
       thumbnail: video.thumbnails[0].url
     }));
 
@@ -530,10 +536,15 @@ async function handleSearchYouTube(socket, { query }) {
 
 async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
-  if (!room) return;
+  if (!room) {
+    // Safety check in case the room doesn't exist
+    return;
+  }
+
   const isHost = socket.user.id === room.hostUserId;
 
   try {
+    // 1. Validate the URL to ensure it's a YouTube link
     const validation = await play.validate(url);
     if (!validation || !validation.includes('youtube')) {
        return socket.emit("newChatMessage", {
@@ -542,42 +553,65 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       });
     }
 
-    // play-dl handles playlists and single videos automatically
+    // 2. Fetch the video/playlist information
+    // play.video_info is powerful and can handle both single videos and playlists
     const info = await play.video_info(url);
-    const videoDetails = info.video_details;
+    
+    let videosToProcess = [];
 
-    const trackToAdd = {
-      videoId: videoDetails.id,
-      name: videoDetails.title,
-      artist: videoDetails.channel.name,
-      albumArt: videoDetails.thumbnails[0].url || "/placeholder.svg",
-      duration_ms: videoDetails.durationInSec * 1000,
-      url: videoDetails.url,
+    // 3. Check if the result is a playlist
+    if (info.playlist) {
+      // It's a playlist, let the user know and get all videos
+      socket.emit("newChatMessage", {
+        system: true,
+        text: `Processing playlist "${info.playlist.title}"... this may take a moment.`,
+      });
+      videosToProcess = await info.playlist.all_videos();
+    } else {
+      // It's a single video
+      videosToProcess.push(info.video_details);
+    }
+    
+    // 4. Map the raw video data to our application's track format
+    const tracksToAdd = videosToProcess.map(video => ({
+      videoId: video.id,
+      name: video.title || "Untitled",
+      artist: video.channel ? video.channel.name : "Unknown Artist",
+      albumArt: video.thumbnails[0]?.url || "/placeholder.svg",
+      duration_ms: video.durationInSec * 1000,
+      url: video.url,
       source: "youtube",
-    };
+    }));
 
+    // 5. Handle the logic based on whether the user is a host or guest
     if (isHost) {
-      room.playlist.push(trackToAdd);
+      room.playlist.push(...tracksToAdd);
+      
+      // If nothing is playing, start the playlist from the first new song
       if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
-        playTrackAtIndex(roomId, 0);
+        // Find the index of the first song we just added
+        const startIndex = room.playlist.length - tracksToAdd.length;
+        playTrackAtIndex(roomId, startIndex);
       } else {
+        // Otherwise, just send a playlist update to all clients
         io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
       }
     } else {
-      const suggestion = {
-        ...trackToAdd,
+      // User is a guest, so add their tracks as suggestions
+      const suggestions = tracksToAdd.map(track => ({
+        ...track,
         suggestionId: `sugg_${Date.now()}_${Math.random()}`,
         suggester: { id: socket.user.id, name: socket.user.displayName },
-      };
-      room.suggestions.push(suggestion);
+      }));
+      room.suggestions.push(...suggestions);
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
 
   } catch (e) {
-    console.error("play-dl error:", e);
+    console.error("play-dl error in handleAddYouTubeTrack:", e);
     socket.emit("newChatMessage", {
       system: true,
-      text: "Sorry, that link could not be processed.",
+      text: "Sorry, that link could not be processed or is private.",
     });
   }
 }
