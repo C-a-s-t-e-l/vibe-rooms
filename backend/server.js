@@ -11,6 +11,26 @@ const session = require("express-session");
 const ytDlpExec = require("yt-dlp-exec");
 const cors = require("cors"); // +++ CHANGE: Import cors
 const jwt = require('jsonwebtoken'); 
+const play = require('play-dl');
+
+play.getFreeClientID().then((clientID) => {
+  play.setToken({
+    youtube : {
+      client_id: clientID
+    }
+  })
+});
+if (process.env.PROXY_URL) {
+  const proxyUrl = new URL(process.env.PROXY_URL);
+  play.setProxy({
+    host: proxyUrl.hostname,
+    port: proxyUrl.port,
+    username: proxyUrl.username,
+    password: proxyUrl.password,
+    https: true, // It's an HTTP proxy, but it can tunnel HTTPS traffic
+    http: true
+  });
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -489,124 +509,83 @@ function handleLeaveRoom(socket) {
 
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
-  const normalizedQuery = query.trim().toLowerCase();
-
-  if (searchCache.has(normalizedQuery)) {
-    const cached = searchCache.get(normalizedQuery);
-    if (Date.now() - cached.timestamp < CACHE_DURATION) {
-      return socket.emit("searchYouTubeResults", cached.results);
-    }
-  }
-
+  
   try {
-    const options = {
-      dumpSingleJson: true,
-      flatPlaylist: true,
-    };
-
-    // The Web Unlocker manages sessions automatically.
-    // We just pass the base PROXY_URL from the environment.
-    if (process.env.PROXY_URL) {
-      options.proxy = process.env.PROXY_URL;
-    }
-
-    const searchResults = await ytDlpExec(`ytsearch10:"${normalizedQuery}"`, options);
-
-    const videoResults = searchResults.entries
-      .filter((info) => info)
-      .map((info) => ({
-        videoId: info.id,
-        title: info.title,
-        artist: info.uploader || info.channel,
-        thumbnail: `https://i.ytimg.com/vi/${info.id}/hqdefault.jpg`,
-      }));
-      
-    searchCache.set(normalizedQuery, {
-      results: videoResults,
-      timestamp: Date.now(),
+    const searchResults = await play.search(query, {
+      source: { youtube: 'video' },
+      limit: 10
     });
+
+    const videoResults = searchResults.map(video => ({
+      videoId: video.id,
+      title: video.title,
+      artist: video.channel.name,
+      thumbnail: video.thumbnails[0].url
+    }));
+
     socket.emit("searchYouTubeResults", videoResults);
 
   } catch (error) {
-    console.error(`yt-dlp search error for query "${normalizedQuery}":`, error);
+    console.error(`play-dl search error for query "${query}":`, error);
     socket.emit("searchYouTubeResults", []);
   }
 }
+
 
 async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
   if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
-  
-  const playlistRegex = /[?&]list=([\w-]+)/;
-  const playlistMatch = url.match(playlistRegex);
 
   try {
-    const options = {
-      dumpSingleJson: true,
-    };
-    
-    // The Web Unlocker manages sessions automatically.
-    if (process.env.PROXY_URL) {
-      options.proxy = process.env.PROXY_URL;
-    }
-    
-    let tracksToAdd = [];
-    if (playlistMatch) {
-      socket.emit("newChatMessage", {
+    const validation = await play.validate(url);
+    if (!validation || !validation.includes('youtube')) {
+       return socket.emit("newChatMessage", {
         system: true,
-        text: "Processing playlist... this may take a moment.",
-      });
-      const playlistInfo = await ytDlpExec(url, options); 
-      tracksToAdd = playlistInfo.entries
-        .filter((info) => info)
-        .map((info) => ({
-          videoId: info.id,
-          name: info.title,
-          artist: info.uploader || info.channel,
-          albumArt: info.thumbnails?.pop()?.url || "/placeholder.svg",
-          duration_ms: info.duration * 1000,
-          url: info.url,
-          source: "youtube",
-        }));
-    } else {
-      const singleVideoOptions = { ...options, format: "bestaudio/best" };
-      const info = await ytDlpExec(url, singleVideoOptions);
-      tracksToAdd.push({
-        videoId: info.id,
-        name: info.title,
-        artist: info.uploader || info.channel,
-        albumArt: info.thumbnails?.pop()?.url || "/placeholder.svg",
-        duration_ms: info.duration * 1000,
-        url: info.url,
-        source: "youtube",
+        text: "Sorry, that doesn't look like a valid YouTube link.",
       });
     }
-    
+
+    // play-dl handles playlists and single videos automatically
+    const info = await play.video_info(url);
+    const videoDetails = info.video_details;
+
+    const trackToAdd = {
+      videoId: videoDetails.id,
+      name: videoDetails.title,
+      artist: videoDetails.channel.name,
+      albumArt: videoDetails.thumbnails[0].url || "/placeholder.svg",
+      duration_ms: videoDetails.durationInSec * 1000,
+      url: videoDetails.url,
+      source: "youtube",
+    };
+
     if (isHost) {
-      room.playlist.push(...tracksToAdd);
+      room.playlist.push(trackToAdd);
       if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
         playTrackAtIndex(roomId, 0);
       } else {
         io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
       }
     } else {
-      const suggestions = tracksToAdd.map((track) => ({
-        ...track,
+      const suggestion = {
+        ...trackToAdd,
         suggestionId: `sugg_${Date.now()}_${Math.random()}`,
         suggester: { id: socket.user.id, name: socket.user.displayName },
-      }));
-      room.suggestions.push(...suggestions);
+      };
+      room.suggestions.push(suggestion);
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
+
   } catch (e) {
-    console.error("yt-dlp error:", e);
+    console.error("play-dl error:", e);
     socket.emit("newChatMessage", {
       system: true,
       text: "Sorry, that link could not be processed.",
     });
   }
 }
+
 function handleDeleteTrack(socket, { roomId, indexToDelete }) {
   const room = rooms[roomId];
   if (!room || socket.user.id !== room.hostUserId) return;
