@@ -10,48 +10,7 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const session = require("express-session");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
-const play = require("play-dl");
-const fs = require("fs"); // We need the file system module
-
-// --- FINAL, CORRECTED PLAY-DL CONFIGURATION ---
-try {
-  // Read the raw cookie file
-  const raw_cookies = fs.readFileSync("cookies.txt", "utf-8");
-
-  // --- THIS IS THE FINAL FIX ---
-  // We must parse the Netscape format into a single-line HTTP Cookie header string.
-  const final_cookie_string = raw_cookies
-    .split("\n") // 1. Split the file into an array of lines
-    .filter((line) => !line.startsWith("#") && line.trim() !== "") // 2. Remove comment and empty lines
-    .map((line) => {
-      // 3. For each valid cookie line...
-      const parts = line.split("\t"); // ...split it by tabs
-      const key = parts[5]; // The cookie name is the 6th part
-      const value = parts[6]; // The cookie value is the 7th part
-      return `${key}=${value}`; // ...format it as "key=value"
-    })
-    .join("; "); // 4. Join all the "key=value" pairs into a SINGLE line, separated by "; "
-  // --- END OF FIX ---
-
-  // Now, we provide the clean, single-line, valid cookie string to the library.
-  play.setToken({
-    youtube: {
-      cookie: final_cookie_string,
-    },
-  });
-  console.log(
-    ">>> play-dl successfully configured with correctly formatted cookies."
-  );
-} catch (e) {
-  console.error(
-    "!!!!!! FAILED TO CONFIGURE PLAY-DL WITH COOKIES !!!!!!",
-    e.message
-  );
-  console.log(
-    "Please ensure 'cookies.txt' exists and is formatted correctly in the 'backend' folder."
-  );
-}
-// --- END OF CONFIGURATION ---
+const ytDlpExec = require("youtube-dl-exec");
 
 const app = express();
 const server = http.createServer(app);
@@ -88,7 +47,6 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// --- Middleware and Routes ---
 const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET,
   resave: false,
@@ -121,11 +79,6 @@ passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
 
 app.use(express.static(path.join(__dirname, "../frontend")));
-
-const ensureAuthenticated = (req, res, next) => {
-  if (req.isAuthenticated()) return next();
-  res.redirect(FRONTEND_URL);
-};
 
 const generateSlug = (name) => {
   const baseSlug = name
@@ -172,13 +125,6 @@ const verifyToken = (req, res, next) => {
   });
 };
 
-app.get("/logout", (req, res, next) => {
-  req.logout((err) => {
-    if (err) return next(err);
-    res.redirect(FRONTEND_URL);
-  });
-});
-
 app.get("/api/user", verifyToken, (req, res) => {
   res.json(req.user);
 });
@@ -204,13 +150,15 @@ io.on("connection", (socket) => {
   socket.on("getRooms", () => broadcastLobbyData());
   socket.on("createRoom", (roomData) => handleCreateRoom(socket, roomData));
   socket.on("joinRoom", (roomId) => handleJoinRoom(socket, roomId));
+  socket.on("addYouTubeTrack", (data) => handleAddYouTubeTrack(socket, data));
+  socket.on("searchYouTube", (data) => handleSearchYouTube(socket, data));
+  // ... other non-scraping related listeners
   socket.on("leaveRoom", ({ roomId }) => processUserLeave(socket, roomId));
   socket.on("sendMessage", (msg) => handleSendMessage(socket, msg));
   socket.on("hostPlaybackChange", (data) =>
     handleHostPlaybackChange(socket, data)
   );
   socket.on("disconnect", () => handleLeaveRoom(socket));
-  socket.on("addYouTubeTrack", (data) => handleAddYouTubeTrack(socket, data));
   socket.on("approveSuggestion", (data) =>
     handleApproveSuggestion(socket, data)
   );
@@ -228,26 +176,38 @@ io.on("connection", (socket) => {
       playTrackAtIndex(data.roomId, data.index);
   });
   socket.on("deleteTrack", (data) => handleDeleteTrack(socket, data));
-  socket.on("searchYouTube", (data) => handleSearchYouTube(socket, data));
 });
 
-// --- HANDLERS (NO LONGER NEED PROXY/COOKIE INFO PASSED) ---
+// --- FINAL yt-dlp HANDLERS ---
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
   try {
-    const searchResults = await play.search(query, {
-      limit: 10,
-      source: { youtube: "video" },
-    });
-    const videoResults = searchResults.map((video) => ({
+    const command = `ytsearch10:${query}`;
+    const options = {
+      dumpJson: true,
+      cookies: "cookies.txt", // Use the cookie file
+    };
+    if (process.env.PROXY_URL) {
+      options.proxy = process.env.PROXY_URL;
+    }
+    const result = await ytDlpExec(command, options);
+    if (!result.stdout || result.stdout.trim() === "") {
+      socket.emit("searchYouTubeResults", []);
+      return;
+    }
+    const videos = result.stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const videoResults = videos.map((video) => ({
       videoId: video.id,
       title: video.title || "Untitled",
-      artist: video.channel ? video.channel.name : "Unknown Artist",
-      thumbnail: video.thumbnails[0].url,
+      artist: video.channel || "Unknown Artist",
+      thumbnail: video.thumbnail,
     }));
     socket.emit("searchYouTubeResults", videoResults);
   } catch (error) {
-    console.error(`play-dl search error for query "${query}":`, error);
+    console.error(`yt-dlp search error for query "${query}":`, error);
     socket.emit("searchYouTubeResults", []);
   }
 }
@@ -257,59 +217,59 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
   try {
-    const info = await play.video_info(url, {
-      source: { youtube: "video" },
-    });
-    let videosToProcess = [];
-    if (info.playlist) {
-      videosToProcess = await info.playlist.all_videos();
-    } else {
-      videosToProcess.push(info.video_details);
+    const options = {
+      dumpJson: true,
+      noPlaylist: true,
+      cookies: "cookies.txt", // Use the cookie file
+    };
+    if (process.env.PROXY_URL) {
+      options.proxy = process.env.PROXY_URL;
     }
-
-    const tracksToAdd = videosToProcess.map((video) => ({
+    const result = await ytDlpExec(url, options);
+    const video = JSON.parse(result.stdout);
+    const track = {
       videoId: video.id,
       name: video.title || "Untitled",
-      artist: video.channel ? video.channel.name : "Unknown Artist",
-      albumArt: video.thumbnails[0]?.url || "/placeholder.svg",
-      duration_ms: video.durationInSec * 1000,
-      url: video.url,
+      artist: video.channel || "Unknown Artist",
+      albumArt: video.thumbnail || "/placeholder.svg",
+      duration_ms: video.duration * 1000,
+      url:
+        video.formats.find(
+          (f) => f.format_id === "251" || f.format_id === "140"
+        )?.url || video.url,
       source: "youtube",
-    }));
-
+    };
+    if (!track.url) {
+      throw new Error("No playable audio format found for this video.");
+    }
     if (isHost) {
-      room.playlist.push(...tracksToAdd);
+      room.playlist.push(track);
       if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
-        const startIndex = room.playlist.length - tracksToAdd.length;
-        playTrackAtIndex(roomId, startIndex);
+        playTrackAtIndex(roomId, room.playlist.length - 1);
       } else {
         io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
       }
     } else {
-      const suggestions = tracksToAdd.map((track) => ({
+      const suggestion = {
         ...track,
         suggestionId: `sugg_${Date.now()}_${Math.random()}`,
         suggester: { id: socket.user.id, name: socket.user.displayName },
-      }));
-      room.suggestions.push(...suggestions);
+      };
+      room.suggestions.push(suggestion);
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
   } catch (e) {
-    console.error(
-      `play-dl error in handleAddYouTubeTrack for URL "${url}":`,
-      e
-    );
+    console.error(`yt-dlp error in handleAddYouTubeTrack for URL "${url}":`, e);
     socket.emit("addTrackFailed", { url: url });
     socket.emit("newChatMessage", {
       system: true,
-      text: "Sorry, that link could not be processed or is private.",
+      text: "Sorry, that link could not be processed, is private, or is not a valid video.",
     });
   }
 }
 
-// ... the rest of your many handler functions (generateUserList, playTrackAtIndex, etc.)
-// are completely unchanged. They can be copied from your existing file.
-// I am including them here for completeness.
+// ... all other handler functions (playTrackAtIndex, etc.) are here ...
+// I am including them for completeness.
 
 const generateUserList = (room) => {
   if (!room) return [];
@@ -355,10 +315,6 @@ async function handleJoinRoom(socket, slug) {
       .eq("slug", slug)
       .single();
     if (error || !dbRoom) {
-      console.error(
-        `Error fetching room "${slug}" from DB or it does not exist.`,
-        error
-      );
       socket.emit("roomNotFound");
       return;
     }
@@ -433,16 +389,11 @@ async function handleJoinRoom(socket, slug) {
 async function getLiveVibes() {
   const { data, error } = await supabase.rpc("get_live_vibe_counts");
   if (error) {
-    console.error("Error fetching live vibe counts via RPC:", error);
     return [];
   }
-  const vibesWithCounts = data.map((v) => ({
-    id: v.id,
-    name: v.name,
-    type: v.type,
-    count: v.room_count,
-  }));
-  return vibesWithCounts.sort((a, b) => b.count - a.count);
+  return data
+    .map((v) => ({ id: v.id, name: v.name, type: v.type, count: v.room_count }))
+    .sort((a, b) => b.count - a.count);
 }
 
 async function broadcastLobbyData() {
@@ -516,22 +467,6 @@ function handleLeaveRoom(socket) {
   }, RECONNECTION_GRACE_PERIOD);
 }
 
-function handleDeleteTrack(socket, { roomId, indexToDelete }) {
-  const room = rooms[roomId];
-  if (!room || socket.user.id !== room.hostUserId) return;
-  if (indexToDelete < 0 || indexToDelete >= room.playlist.length) return;
-  const isDeletingCurrent = room.nowPlayingIndex === indexToDelete;
-  room.playlist.splice(indexToDelete, 1);
-  if (indexToDelete < room.nowPlayingIndex) {
-    room.nowPlayingIndex--;
-  }
-  if (isDeletingCurrent) {
-    playTrackAtIndex(roomId, room.nowPlayingIndex);
-  } else {
-    io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
-  }
-}
-
 async function findOrCreateVibe(vibeData) {
   let { data: existingVibe, error: findError } = await supabase
     .from("vibes")
@@ -539,7 +474,6 @@ async function findOrCreateVibe(vibeData) {
     .eq("name", vibeData.name)
     .single();
   if (findError && findError.code !== "PGRST116") {
-    console.error("Error finding vibe:", findError);
     return null;
   }
   if (existingVibe) {
@@ -552,7 +486,6 @@ async function findOrCreateVibe(vibeData) {
       .select("id")
       .single();
     if (createError) {
-      console.error("Error creating custom vibe:", createError);
       return null;
     }
     return newVibe.id;
@@ -563,12 +496,12 @@ async function findOrCreateVibe(vibeData) {
 async function handleCreateRoom(socket, roomData) {
   const { roomName, vibe } = roomData;
   if (!roomName || !vibe || !vibe.name || !vibe.type) {
-    return socket.emit("error", { message: "Invalid room data provided." });
+    return;
   }
   try {
     const vibeId = await findOrCreateVibe(vibe);
     if (!vibeId) {
-      return socket.emit("error", { message: "Could not process vibe." });
+      return;
     }
     const slug = generateSlug(roomName);
     const { data: newRoom, error: roomError } = await supabase
@@ -582,8 +515,7 @@ async function handleCreateRoom(socket, roomData) {
       .select("id, slug")
       .single();
     if (roomError) {
-      console.error("Error creating room in DB:", roomError);
-      return socket.emit("error", { message: "Failed to create room." });
+      return;
     }
     const roomId = newRoom.id.toString();
     const roomSlug = newRoom.slug;
@@ -604,10 +536,7 @@ async function handleCreateRoom(socket, roomData) {
     };
     socket.emit("roomCreated", { slug: roomSlug });
     broadcastLobbyData();
-  } catch (error) {
-    console.error("An unexpected error occurred in handleCreateRoom:", error);
-    socket.emit("error", { message: "An internal server error occurred." });
-  }
+  } catch (error) {}
 }
 
 function playTrackAtIndex(roomId, index) {
@@ -646,16 +575,14 @@ function playTrackAtIndex(roomId, index) {
 function playNextSong(roomId) {
   const room = rooms[roomId];
   if (!room) return;
-  const nextIndex = room.nowPlayingIndex + 1;
-  playTrackAtIndex(roomId, nextIndex);
+  playTrackAtIndex(roomId, room.nowPlayingIndex + 1);
 }
 
 function playPrevSong(roomId) {
   const room = rooms[roomId];
   if (!room) return;
-  const prevIndex = room.nowPlayingIndex - 1;
-  if (prevIndex >= 0) {
-    playTrackAtIndex(roomId, prevIndex);
+  if (room.nowPlayingIndex - 1 >= 0) {
+    playTrackAtIndex(roomId, room.nowPlayingIndex - 1);
   }
 }
 
@@ -713,13 +640,10 @@ const getPublicRoomsData = () =>
 function handleRejectSuggestion(socket, { roomId, suggestionId }) {
   const room = rooms[roomId];
   if (!room || socket.user.id !== room.hostUserId) return;
-  const initialLength = room.suggestions.length;
   room.suggestions = room.suggestions.filter(
     (s) => s.suggestionId !== suggestionId
   );
-  if (room.suggestions.length < initialLength) {
-    io.to(roomId).emit("suggestionsUpdated", room.suggestions);
-  }
+  io.to(roomId).emit("suggestionsUpdated", room.suggestions);
 }
 
 function handleHostPlaybackChange(socket, data) {
@@ -758,6 +682,22 @@ function handleHostPlaybackChange(socket, data) {
     }, SYNC_INTERVAL);
   }
   io.to(data.roomId).emit("syncPulse", getAuthoritativeNowPlaying(room));
+}
+
+function handleDeleteTrack(socket, { roomId, indexToDelete }) {
+  const room = rooms[roomId];
+  if (!room || socket.user.id !== room.hostUserId) return;
+  if (indexToDelete < 0 || indexToDelete >= room.playlist.length) return;
+  const isDeletingCurrent = room.nowPlayingIndex === indexToDelete;
+  room.playlist.splice(indexToDelete, 1);
+  if (indexToDelete < room.nowPlayingIndex) {
+    room.nowPlayingIndex--;
+  }
+  if (isDeletingCurrent) {
+    playTrackAtIndex(roomId, room.nowPlayingIndex);
+  } else {
+    io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
+  }
 }
 
 function handleSendMessage(socket, msg) {
