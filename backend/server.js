@@ -10,9 +10,7 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const session = require("express-session");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
-// --- THIS IS THE CORRECTED IMPORT ---
 const ytDlpExec = require("yt-dlp-exec");
-// --- END OF CORRECTION ---
 
 const app = express();
 const server = http.createServer(app);
@@ -375,12 +373,10 @@ async function processUserLeave(socket, roomId) {
         system: true,
         text: "👑 You are now the host of this room!",
       });
-      newHostSocket.broadcast
-        .to(roomId)
-        .emit("newChatMessage", {
-          system: true,
-          text: `👑 ${newHost.user.displayName} is now the host.`,
-        });
+      newHostSocket.broadcast.to(roomId).emit("newChatMessage", {
+        system: true,
+        text: `👑 ${newHost.user.displayName} is now the host.`,
+      });
     }
   }
   const updatedUserList = generateUserList(room);
@@ -410,78 +406,51 @@ function handleLeaveRoom(socket) {
   }, RECONNECTION_GRACE_PERIOD);
 }
 
-// --- NEW yt-dlp-exec HANDLERS ---
+// --- CLEANED UP AND DEBUG-ENHANCED HANDLERS ---
 async function handleSearchYouTube(socket, { query }) {
   if (!query) return;
-  try {
-    const options = { dumpJson: true };
-    if (process.env.PROXY_URL) {
-      options.proxy = process.env.PROXY_URL;
-    }
-    const command = `ytsearch10:${query}`;
-    
-    // --- THIS IS THE FIX ---
-    // The library automatically finds the system 'yt-dlp'.
-    // We just pass the command and options.
-    const result = await ytDlpExec(command, options);
-    // --- END OF FIX ---
-
-    const videos = result.stdout.trim().split('\n').map(line => JSON.parse(line));
-    const videoResults = videos.map(video => ({
-      videoId: video.id,
-      title: video.title || "Untitled",
-      artist: video.channel || 'Unknown Artist',
-      thumbnail: video.thumbnail
-    }));
-    socket.emit("searchYouTubeResults", videoResults);
-  } catch (error) {
-    console.error(`yt-dlp search error for query "${query}":`, error);
-    socket.emit("searchYouTubeResults", []);
-  }
-}
-
-async function handleSearchYouTube(socket, { query }) {
-  if (!query) return;
-
   console.log(`[DEBUG] Starting yt-dlp search for: "${query}"`);
-
   try {
     const options = { dumpJson: true };
     if (process.env.PROXY_URL) {
       options.proxy = process.env.PROXY_URL;
     }
     const command = `ytsearch10:${query}`;
-    
     const result = await ytDlpExec(command, options);
-
-    // --- TEMPORARY DEBUG LOGGING ---
-    // We will log everything we get back from the command.
-    console.log(`[DEBUG] yt-dlp STDOUT for "${query}":\n---start---\n${result.stdout}\n---end---`);
-    
+    console.log(
+      `[DEBUG] yt-dlp STDOUT for "${query}":\n---start---\n${result.stdout}\n---end---`
+    );
     if (result.stderr) {
-        console.log(`[DEBUG] yt-dlp STDERR for "${query}":\n---start---\n${result.stderr}\n---end---`);
+      console.log(
+        `[DEBUG] yt-dlp STDERR for "${query}":\n---start---\n${result.stderr}\n---end---`
+      );
     }
-    // --- END OF DEBUG LOGGING ---
-
-    if (!result.stdout || result.stdout.trim() === '') {
-      console.log(`[INFO] yt-dlp search for "${query}" returned no results in stdout.`);
+    if (!result.stdout || result.stdout.trim() === "") {
+      console.log(
+        `[INFO] yt-dlp search for "${query}" returned no results in stdout.`
+      );
       socket.emit("searchYouTubeResults", []);
       return;
     }
-
-    const videos = result.stdout.trim().split('\n').map(line => JSON.parse(line));
-    const videoResults = videos.map(video => ({
+    const videos = result.stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const videoResults = videos.map((video) => ({
       videoId: video.id,
       title: video.title || "Untitled",
-      artist: video.channel || 'Unknown Artist',
-      thumbnail: video.thumbnail
+      artist: video.channel || "Unknown Artist",
+      thumbnail: video.thumbnail,
     }));
-
-    console.log(`[SUCCESS] Found ${videoResults.length} results for "${query}".`);
+    console.log(
+      `[SUCCESS] Found ${videoResults.length} results for "${query}".`
+    );
     socket.emit("searchYouTubeResults", videoResults);
-
   } catch (error) {
-    console.error(`[CRITICAL] yt-dlp search crashed for query "${query}":`, error);
+    console.error(
+      `[CRITICAL] yt-dlp search crashed for query "${query}":`,
+      error
+    );
     socket.emit("searchYouTubeResults", []);
   }
 }
@@ -490,37 +459,36 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
   if (!room) return;
   const isHost = socket.user.id === room.hostUserId;
-
   console.log(`[DEBUG] Starting yt-dlp info fetch for: "${url}"`);
-
   try {
     const options = { dumpJson: true, noPlaylist: true };
     if (process.env.PROXY_URL) {
       options.proxy = process.env.PROXY_URL;
     }
-    
     const result = await ytDlpExec(url, options);
-
-    // --- TEMPORARY DEBUG LOGGING ---
-    console.log(`[DEBUG] yt-dlp STDOUT for "${url}":\n---start---\n${result.stdout}\n---end---`);
+    console.log(
+      `[DEBUG] yt-dlp STDOUT for "${url}":\n---start---\n${result.stdout}\n---end---`
+    );
     if (result.stderr) {
-        console.log(`[DEBUG] yt-dlp STDERR for "${url}":\n---start---\n${result.stderr}\n---end---`);
+      console.log(
+        `[DEBUG] yt-dlp STDERR for "${url}":\n---start---\n${result.stderr}\n---end---`
+      );
     }
-    // --- END OF DEBUG LOGGING ---
-
     const video = JSON.parse(result.stdout);
-    
     const track = {
       videoId: video.id,
       name: video.title || "Untitled",
       artist: video.channel || "Unknown Artist",
       albumArt: video.thumbnail || "/placeholder.svg",
       duration_ms: video.duration * 1000,
-      url: video.formats.find(f => f.format_id === '251' || f.format_id === '140')?.url || video.url,
+      url:
+        video.formats.find(
+          (f) => f.format_id === "251" || f.format_id === "140"
+        )?.url || video.url,
       source: "youtube",
     };
     if (!track.url) {
-        throw new Error("No playable audio format found for this video.");
+      throw new Error("No playable audio format found for this video.");
     }
     if (isHost) {
       room.playlist.push(track);
@@ -539,9 +507,15 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
   } catch (e) {
-    console.error(`[CRITICAL] yt-dlp crash in handleAddYouTubeTrack for URL "${url}":`, e);
+    console.error(
+      `[CRITICAL] yt-dlp crash in handleAddYouTubeTrack for URL "${url}":`,
+      e
+    );
     socket.emit("addTrackFailed", { url: url });
-    socket.emit("newChatMessage", { system: true, text: "Sorry, that link could not be processed, is private, or is not a valid video.", });
+    socket.emit("newChatMessage", {
+      system: true,
+      text: "Sorry, that link could not be processed, is private, or is not a valid video.",
+    });
   }
 }
 
