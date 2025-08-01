@@ -12,7 +12,6 @@ const ytDlpExec = require("yt-dlp-exec");
 const cors = require("cors"); // +++ CHANGE: Import cors
 const jwt = require('jsonwebtoken'); 
 const play = require('play-dl');
-const { setGlobalDispatcher, ProxyAgent } = require('undici');
 
 const getPlayDLSource = () => {
   const source = {
