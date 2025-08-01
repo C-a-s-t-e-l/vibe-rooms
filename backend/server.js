@@ -73,8 +73,8 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      // The callbackURL should be your backend's URL
-      callbackURL: "/auth/google/callback",
+      // CHANGE THIS LINE:
+      callbackURL: `${process.env.RENDER_EXTERNAL_URL || 'http://localhost:3000'}/auth/google/callback`,
     },
     (accessToken, refreshToken, profile, done) => {
       return done(null, profile);
