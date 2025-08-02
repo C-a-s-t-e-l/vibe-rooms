@@ -153,6 +153,7 @@ io.on("connection", (socket) => {
       playTrackAtIndex(data.roomId, data.index);
   });
   socket.on("deleteTrack", (data) => handleDeleteTrack(socket, data));
+  socket.on("hostUpdateDuration", (data) => handleHostUpdateDuration(socket, data));
   // --- DELETED: The 'searchYouTube' listener has been removed ---
 });
 
@@ -186,6 +187,34 @@ async function handleAddYouTubeTrack(socket, { roomId, trackData }) { // We now 
     room.suggestions.push(suggestion);
     io.to(roomId).emit("suggestionsUpdated", room.suggestions);
   }
+}
+
+function handleHostUpdateDuration(socket, { roomId, trackIndex, durationMs }) {
+  const room = rooms[roomId];
+  // Security check: only the host can do this, and only for the currently playing song.
+  if (
+    !room ||
+    socket.user.id !== room.hostUserId ||
+    room.nowPlayingIndex !== trackIndex ||
+    !room.playlist[trackIndex]
+  ) {
+    return;
+  }
+
+  // Update the duration for the current track
+  const track = room.playlist[trackIndex];
+  track.duration_ms = durationMs;
+
+  // Reset the song end timer with the CORRECT duration
+  if (room.songEndTimer) clearTimeout(room.songEndTimer);
+  
+  const timeSincePlay = Date.now() - room.nowPlaying.startTime;
+  const remainingDuration = durationMs - timeSincePlay;
+
+  room.songEndTimer = setTimeout(() => playNextSong(roomId), remainingDuration + 1500);
+
+  // Optional: Send the updated playlist to everyone so their UI shows the correct time
+  io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
 }
 
 // --- DELETED: The handleSearchYouTube function has been completely removed. ---
