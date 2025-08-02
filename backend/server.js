@@ -471,28 +471,19 @@ function playTrackAtIndex(roomId, index) {
 const getAuthoritativeNowPlaying = (room) => {
   if (!room || !room.nowPlaying) return null;
 
-  // --- THIS IS THE DEFINITIVE FIX FOR THE "FAKE PAUSE" ---
-  let currentPosition;
+  // This is now always correct because the main handler sets the state perfectly.
+  const currentPosition = room.isPlaying 
+    ? Date.now() - room.nowPlaying.startTime 
+    : room.nowPlaying.position;
 
-  if (room.isPlaying) {
-    // If the song is playing, the position is a calculation of time passed.
-    currentPosition = Date.now() - room.nowPlaying.startTime;
-  } else {
-    // If the song is paused, the position is the STATIC value that was
-    // saved the moment the host clicked pause. It does not advance.
-    currentPosition = room.nowPlaying.position;
-  }
-
-  const authoritativeState = {
+  return {
     track: room.nowPlaying.track,
     startTime: room.nowPlaying.startTime,
-    position: currentPosition, // Send the correctly calculated or stored position
+    position: currentPosition,
     isPlaying: room.isPlaying,
     serverTimestamp: Date.now(),
     nowPlayingIndex: room.nowPlayingIndex,
   };
-
-  return authoritativeState;
 };
 
 const getSanitizedRoomState = (room, isHost, user) => {
@@ -527,25 +518,23 @@ function handleHostPlaybackChange(socket, data) {
 
   if (room.songEndTimer) clearTimeout(room.songEndTimer);
 
-  // Before changing state, capture the song's current progress.
-  const currentPosition = Date.now() - room.nowPlaying.startTime;
-  room.nowPlaying.position = currentPosition;
-
-  // Update the playing state from the host's command.
+  // --- THE DEFINITIVE FIX: STEP 1 ---
+  // Update the room's playing state FIRST. This is the most crucial change.
   room.isPlaying = data.isPlaying;
 
+  // Now, calculate the position based on the PREVIOUS state.
+  const currentPosition = Date.now() - room.nowPlaying.startTime;
+  
   // If the host also sent a new position (from seeking), honor that.
-  if (data.position !== undefined) {
-    room.nowPlaying.position = data.position;
-  }
-
-  // Reset the `startTime` reference based on the now-correct position.
-  // This is what "freezes" the time correctly when paused.
+  // Otherwise, use the position we just calculated.
+  room.nowPlaying.position = data.position !== undefined ? data.position : currentPosition;
+  
+  // Finally, reset the `startTime` reference based on the now-correct position.
+  // This correctly "freezes" or "unfreezes" the time.
   room.nowPlaying.startTime = Date.now() - room.nowPlaying.position;
 
   if (room.isPlaying) {
-    const remainingDuration =
-      room.nowPlaying.track.duration_ms - room.nowPlaying.position;
+    const remainingDuration = room.nowPlaying.track.duration_ms - room.nowPlaying.position;
     room.songEndTimer = setTimeout(
       () => playNextSong(data.roomId),
       remainingDuration + 1500
