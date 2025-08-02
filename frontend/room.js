@@ -71,22 +71,25 @@ document.addEventListener("DOMContentLoaded", () => {
   const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
 
   function unlockAudio() {
-  if (audioContextUnlocked) return;
-  audioContextUnlocked = true;
-  audioUnlockOverlay.style.display = "none";
+    if (audioContextUnlocked) return;
+    audioContextUnlocked = true;
+    audioUnlockOverlay.style.display = "none";
 
-  // --- THIS IS THE DEFINITIVE FIX FOR THE HOST RELOAD BUG ---
-  // After unlocking, check if a song SHOULD be playing according to the last known state.
-  // We check both the main state and the initial data for the first-load case.
-  const shouldBePlaying = (currentPlaylistState && currentPlaylistState.isPlaying) || 
-                          (initialNowPlayingData && initialNowPlayingData.isPlaying);
+    // --- THIS IS THE DEFINITIVE FIX FOR THE HOST RELOAD BUG ---
+    // After unlocking, check if a song SHOULD be playing according to the last known state.
+    // We check both the main state and the initial data for the first-load case.
+    const shouldBePlaying =
+      (currentPlaylistState && currentPlaylistState.isPlaying) ||
+      (initialNowPlayingData && initialNowPlayingData.isPlaying);
 
-  // If it should be playing, command the player to play now that it's allowed.
-  if (player && shouldBePlaying) {
-    console.log("Audio unlocked and song should be playing. Issuing play command.");
-    player.playVideo();
+    // If it should be playing, command the player to play now that it's allowed.
+    if (player && shouldBePlaying) {
+      console.log(
+        "Audio unlocked and song should be playing. Issuing play command."
+      );
+      player.playVideo();
+    }
   }
-}
 
   audioUnlockOverlay.addEventListener("click", unlockAudio);
   setupSocketListeners();
@@ -312,59 +315,65 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // THIS IS THE MOST IMPORTANT CLIENT-SIDE FIX
   function syncPlayerState(nowPlaying) {
-  clearInterval(nowPlayingInterval);
+    clearInterval(nowPlayingInterval);
 
-  if (!nowPlaying || !nowPlaying.track) {
-    updateNowPlayingUI(null, false);
-    if (player && typeof player.stopVideo === 'function') player.stopVideo();
-    return;
-  }
-  
-  if (!player || typeof player.loadVideoById !== 'function') {
-    initialNowPlayingData = nowPlaying;
+    if (!nowPlaying || !nowPlaying.track) {
+      updateNowPlayingUI(null, false);
+      if (player && typeof player.stopVideo === "function") player.stopVideo();
+      return;
+    }
+
+    if (!player || typeof player.loadVideoById !== "function") {
+      initialNowPlayingData = nowPlaying;
+      updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
+      return;
+    }
+
     updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
-    return;
-  }
 
-  updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
-  
-  const { track, isPlaying, position, serverTimestamp, startTime } = nowPlaying;
-  
-  const latency = Date.now() - serverTimestamp;
-  const correctedPositionInSeconds = (position + latency) / 1000;
-  
-  const currentVideoUrl = player.getVideoUrl();
-  const currentPlayerVideoId = currentVideoUrl ? (currentVideoUrl.match(/v=([^&]+)/) || [])[1] : null;
+    const { track, isPlaying, position, serverTimestamp, startTime } =
+      nowPlaying;
 
-  if (currentPlayerVideoId !== track.videoId) {
-    player.loadVideoById({
+    const latency = Date.now() - serverTimestamp;
+    const correctedPositionInSeconds = (position + latency) / 1000;
+
+    const currentVideoUrl = player.getVideoUrl();
+    const currentPlayerVideoId = currentVideoUrl
+      ? (currentVideoUrl.match(/v=([^&]+)/) || [])[1]
+      : null;
+
+    if (currentPlayerVideoId !== track.videoId) {
+      player.loadVideoById({
         videoId: track.videoId,
-        startSeconds: correctedPositionInSeconds
-    });
-  } else {
-    const clientTime = player.getCurrentTime();
-    if (Math.abs(clientTime - correctedPositionInSeconds) > 1.5) {
-        player.seekTo(correctedPositionInSeconds, true);
-    }
-  }
-  
-  if (isPlaying) {
-    startProgressTimer(startTime, track.duration_ms);
-    // --- DEFINITIVE FIX FOR HOST RELOAD ---
-    // Only try to play if the audio context is unlocked.
-    // If it's not, show the overlay. The `unlockAudio` function will handle playback.
-    if (audioContextUnlocked) {
-      player.playVideo();
+        startSeconds: correctedPositionInSeconds,
+      });
     } else {
-      audioUnlockOverlay.style.display = 'grid';
+      const clientTime = player.getCurrentTime();
+      if (Math.abs(clientTime - correctedPositionInSeconds) > 1.5) {
+        player.seekTo(correctedPositionInSeconds, true);
+      }
     }
-  } else {
-    const progressPercent = (position / track.duration_ms) * 100;
-    document.getElementById("progress-bar").style.width = `${progressPercent}%`;
-    document.getElementById("current-time").textContent = formatTime(position);
-    player.pauseVideo();
+
+    if (isPlaying) {
+      startProgressTimer(startTime, track.duration_ms);
+      // --- DEFINITIVE FIX FOR HOST RELOAD ---
+      // Only try to play if the audio context is unlocked.
+      // If it's not, show the overlay. The `unlockAudio` function will handle playback.
+      if (audioContextUnlocked) {
+        player.playVideo();
+      } else {
+        audioUnlockOverlay.style.display = "grid";
+      }
+    } else {
+      const progressPercent = (position / track.duration_ms) * 100;
+      document.getElementById(
+        "progress-bar"
+      ).style.width = `${progressPercent}%`;
+      document.getElementById("current-time").textContent =
+        formatTime(position);
+      player.pauseVideo();
+    }
   }
-}
 
   function startProgressTimer(startTime, duration_ms) {
     clearInterval(nowPlayingInterval);
