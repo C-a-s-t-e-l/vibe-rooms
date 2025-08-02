@@ -28,7 +28,7 @@ const io = new Server(server, {
   cors: { origin: FRONTEND_URL, methods: ["GET", "POST"], credentials: true },
 });
 const PORT = process.env.PORT || 3000;
-const SYNC_INTERVAL = 4000;
+const SYNC_INTERVAL = 1000;
 let rooms = {};
 let userSockets = {};
 const RECONNECTION_GRACE_PERIOD = 10 * 1000;
@@ -545,24 +545,29 @@ function handleDeleteTrack(socket, { roomId, indexToDelete }) {
 }
 function handleApproveSuggestion(socket, { roomId, suggestionId }) {
   const room = rooms[roomId];
+  // Security check: Only the host can approve.
   if (!room || socket.user.id !== room.hostUserId) return;
+
   const suggestionIndex = room.suggestions.findIndex(
     (s) => s.suggestionId === suggestionId
   );
-  if (suggestionIndex === -1) return;
+  if (suggestionIndex === -1) return; // Suggestion not found
+
+  // 1. Get the suggestion and remove it from the suggestions list.
   const [approvedSuggestion] = room.suggestions.splice(suggestionIndex, 1);
-  const {
-    suggestionId: sid,
-    suggester,
-    ...trackForPlaylist
-  } = approvedSuggestion;
+  const { suggestionId: sid, suggester, ...trackForPlaylist } = approvedSuggestion;
+
+  // 2. Add the track to the main playlist.
   room.playlist.push(trackForPlaylist);
-  if (room.nowPlayingIndex === -1) {
-    playTrackAtIndex(roomId, 0);
-  } else {
-    io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
-  }
+  
+  // 3. Tell everyone the suggestions list has changed.
   io.to(roomId).emit("suggestionsUpdated", room.suggestions);
+  
+  // --> THIS IS THE FIX <--
+  // 4. Immediately play the newly added track.
+  // The new track is always at the end of the playlist array.
+  const newTrackIndex = room.playlist.length - 1;
+  playTrackAtIndex(roomId, newTrackIndex);
 }
 function handleRejectSuggestion(socket, { roomId, suggestionId }) {
   const room = rooms[roomId];
