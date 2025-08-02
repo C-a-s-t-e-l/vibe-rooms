@@ -24,7 +24,7 @@ const io = new Server(server, {
   cors: { origin: FRONTEND_URL, methods: ["GET", "POST"], credentials: true },
 });
 const PORT = process.env.PORT || 3000;
-const SYNC_INTERVAL = 1000;
+const SYNC_INTERVAL = 500;
 let rooms = {};
 let userSockets = {};
 const RECONNECTION_GRACE_PERIOD = 10 * 1000;
