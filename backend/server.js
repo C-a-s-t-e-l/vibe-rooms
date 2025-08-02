@@ -126,6 +126,9 @@ const verifyToken = (req, res, next) => {
 };
 
 app.get("/api/user", verifyToken, (req, res) => res.json(req.user));
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', message: 'Vibes server is healthy' });
+});
 io.engine.use(sessionMiddleware);
 io.engine.use(passport.initialize());
 io.engine.use(passport.session());
