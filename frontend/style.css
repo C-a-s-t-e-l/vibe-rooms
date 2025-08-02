@@ -82,7 +82,9 @@ body {
   justify-content: space-between;
   align-items: center;
   padding: 1.5rem;
+  gap: 1.5rem;
 }
+
 @media (min-width: 768px) {
   .main-nav {
     padding: 2rem;
@@ -116,7 +118,18 @@ body {
   display: flex;
   align-items: center;
   gap: 1rem;
+  flex-grow: 1;
+  justify-content: flex-end;
 }
+
+.nav-actions .nav-link {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
 .nav-link {
   color: hsl(var(--muted-foreground));
   text-decoration: none;
