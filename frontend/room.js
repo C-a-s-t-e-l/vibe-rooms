@@ -1,13 +1,11 @@
 // frontend/room.js
 
 document.addEventListener("DOMContentLoaded", () => {
-  
   const BACKEND_URL = "https://vibes-fqic.onrender.com";
   const userToken = localStorage.getItem("vibe_token");
-  const volumeSlider = document.getElementById('volume-slider');
-  const savedVolume = localStorage.getItem('vibe_volume') || 80; 
+  const volumeSlider = document.getElementById("volume-slider");
+  const savedVolume = localStorage.getItem("vibe_volume") || 80;
   volumeSlider.value = savedVolume;
-  
 
   if (!userToken) {
     window.location.href = "/";
@@ -18,11 +16,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let player;
   let initialNowPlayingData = null;
-  let isSeeking = false; 
   let lastSeekTimestamp = 0;
 
   window.onYouTubeIframeAPIReady = function () {
-    console.log("YouTube Iframe API is ready.");
     player = new YT.Player("youtube-player", {
       height: "0",
       width: "0",
@@ -35,41 +31,22 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   function onPlayerReady(event) {
-  console.log("Player is ready to be controlled.");
-  const volumeSlider = document.getElementById("volume-slider");
-  if (player && player.setVolume) {
+    console.log("Player is ready to be controlled.");
     player.setVolume(volumeSlider.value);
-  }
-
-  // --- THIS IS THE NEW LOGIC FOR GUESTS ---
-  if (!isHost) {
-    console.log("Guest player is ready, requesting perfect sync from host.");
-    socket.emit("requestPerfectSync", { roomId: currentRoomId });
-  }
-  // --- END OF NEW LOGIC ---
-
-  if (initialNowPlayingData) {
-    console.log("Syncing to stored initial state now that player is ready.");
-    syncPlayerState(initialNowPlayingData);
-    initialNowPlayingData = null;
-  }
-}
-
-  function onPlayerStateChange(event) {
-  // This function's ONLY job now is to detect when a song finishes playing on its own.
-  // If it does, and this user is the host, it tells the server to skip to the next track.
-  if (event.data === YT.PlayerState.ENDED) {
-    if (isHost) {
-      socket.emit("skipTrack", { roomId: currentRoomId });
+    if (!isHost) {
+      socket.emit("requestPerfectSync", { roomId: currentRoomId });
+    }
+    if (initialNowPlayingData) {
+      syncPlayerState(initialNowPlayingData);
+      initialNowPlayingData = null;
     }
   }
 
-  // It no longer handles PLAYING, PAUSED, or BUFFERING states.
-  // The server, via the syncPlayerState and syncPulse events, is now the single
-  // source of truth for all other player states. This prevents the client
-  // from fighting with the server, eliminates race conditions, and fixes the bugs
-  // you were seeing like the pause-on-reload and inconsistent UI.
-}
+  function onPlayerStateChange(event) {
+    if (event.data === YT.PlayerState.ENDED && isHost) {
+      socket.emit("skipTrack", { roomId: currentRoomId });
+    }
+  }
 
   const formatTime = (ms) => {
     if (!ms || isNaN(ms)) return "0:00";
@@ -90,7 +67,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const audioUnlockOverlay = document.getElementById("audio-unlock-overlay");
   const playPauseBtn = document.getElementById("play-pause-btn");
-
   const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7Z"/></svg>`;
   const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
 
@@ -98,6 +74,14 @@ document.addEventListener("DOMContentLoaded", () => {
     if (audioContextUnlocked) return;
     audioContextUnlocked = true;
     audioUnlockOverlay.style.display = "none";
+    if (
+      player &&
+      player.getPlayerState() === YT.PlayerState.UNSTARTED &&
+      initialNowPlayingData &&
+      initialNowPlayingData.isPlaying
+    ) {
+      player.playVideo();
+    }
   }
 
   audioUnlockOverlay.addEventListener("click", unlockAudio);
@@ -106,10 +90,7 @@ document.addEventListener("DOMContentLoaded", () => {
   socket.emit("joinRoom", currentRoomSlug);
 
   function setupSocketListeners() {
-    socket.on("toast", ({ type, message }) => {
-  showToast(message, type);
-});
-
+    socket.on("toast", ({ type, message }) => showToast(message, type));
     socket.on("connect_error", (err) => {
       if (err.message.includes("unauthorized")) {
         localStorage.removeItem("vibe_token");
@@ -118,128 +99,94 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     socket.on("roomState", (data) => {
-  // 1. Guard clause: If no room data is received, redirect to home.
-  if (!data) {
-    window.location.href = "/";
-    return;
-  }
-
-  // 2. Set up core room properties.
-  currentRoomId = data.id;
-  document.title = data.name;
-  isHost = data.isHost;
-  document.getElementById("room-name-display").textContent = data.name;
-  document.getElementById("listener-count-display").textContent = data.listenerCount;
-
-  // 3. Apply CSS classes based on user role (Host vs. Guest).
-  // This is used to show/hide UI elements like the host-only forms and controls.
-  const addVibeWrapper = document.getElementById("add-vibe-wrapper");
-  addVibeWrapper.classList.toggle("is-host", isHost);
-  addVibeWrapper.classList.toggle("is-guest", !isHost);
-  
-  // This is the logic for hiding the playback controls for guests.
-  const hostControlsWrapper = document.getElementById("host-controls-wrapper");
-  // By toggling the a parent class, all children with .host-only-controls will hide via CSS.
-  hostControlsWrapper.classList.toggle("is-guest", !isHost);
-
-
-  // 4. Update all the major UI components with the received state.
-  currentPlaylistState = data.playlistState || { playlist: [], nowPlayingIndex: -1 };
-  updatePlaylistUI(currentPlaylistState);
-
-  currentSuggestions = data.suggestions || [];
-  updateSuggestionsUI(currentSuggestions);
-
-  updateUserListUI(data.userList || []);
-
-  // 5. --> THIS IS THE NEW LOGIC FOR CHAT HISTORY <--
-  // When joining, clear the chat and render the history sent from the server.
-  const chatMessages = document.getElementById("chat-messages");
-  chatMessages.innerHTML = ''; // Clear the container first
-  if (data.chatHistory && data.chatHistory.length > 0) {
-    data.chatHistory.forEach(message => {
-      // We only render user messages from history to keep it clean.
-      if (!message.system) {
-        renderChatMessage(message);
+      if (!data) return (window.location.href = "/");
+      currentRoomId = data.id;
+      document.title = data.name;
+      isHost = data.isHost;
+      document.getElementById("room-name-display").textContent = data.name;
+      document.getElementById("listener-count-display").textContent =
+        data.listenerCount;
+      const addVibeWrapper = document.getElementById("add-vibe-wrapper");
+      addVibeWrapper.classList.toggle("is-host", isHost);
+      addVibeWrapper.classList.toggle("is-guest", !isHost);
+      const hostControlsWrapper = document.getElementById(
+        "host-controls-wrapper"
+      );
+      hostControlsWrapper.classList.toggle("is-guest", !isHost);
+      currentPlaylistState = data.playlistState || {
+        playlist: [],
+        nowPlayingIndex: -1,
+      };
+      updatePlaylistUI(currentPlaylistState);
+      currentSuggestions = data.suggestions || [];
+      updateSuggestionsUI(currentSuggestions);
+      updateUserListUI(data.userList || []);
+      const chatMessages = document.getElementById("chat-messages");
+      chatMessages.innerHTML = "";
+      if (data.chatHistory) {
+        data.chatHistory.forEach(
+          (message) => !message.system && renderChatMessage(message)
+        );
       }
+      syncPlayerState(data.nowPlaying);
     });
-  }
-
-  // 6. Finally, synchronize the YouTube player state.
-  syncPlayerState(data.nowPlaying);
-});
 
     socket.on("newSongPlaying", (nowPlayingData) => {
-      if (nowPlayingData && nowPlayingData.nowPlayingIndex !== undefined) {
+      if (nowPlayingData) {
         currentPlaylistState.nowPlayingIndex = nowPlayingData.nowPlayingIndex;
+        currentPlaylistState.isPlaying = nowPlayingData.isPlaying;
         updatePlaylistUI(currentPlaylistState);
       }
       syncPlayerState(nowPlayingData);
     });
 
     socket.on("getHostTimestamp", ({ requesterId }) => {
-    // This only runs on the host's client
-    if (isHost && player && typeof player.getCurrentTime === 'function') {
-        const hostPlayerTime = player.getCurrentTime();
-        // The host sends their perfect timestamp back to the server
-        socket.emit("sendHostTimestamp", { requesterId, hostPlayerTime });
-    }
-});
+      if (isHost && player && typeof player.getCurrentTime === "function") {
+        socket.emit("sendHostTimestamp", {
+          requesterId,
+          hostPlayerTime: player.getCurrentTime(),
+        });
+      }
+    });
 
-// The guest who requested the sync receives the perfect timestamp
-socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
-    // This only runs on the guest's client
-    if (!isHost && player && typeof player.seekTo === 'function') {
-        console.log(`Received perfect sync time from host: ${hostPlayerTime}. Seeking.`);
+    socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
+      if (!isHost && player && typeof player.seekTo === "function") {
         player.seekTo(hostPlayerTime, true);
-        // Ensure the player state matches the room state after seeking
         if (currentPlaylistState && currentPlaylistState.isPlaying) {
-            player.playVideo();
+          player.playVideo();
         } else {
-            player.pauseVideo();
+          player.pauseVideo();
         }
-    }
-});
+      }
+    });
 
     socket.on("syncPulse", (data) => {
-  // Ignore pulses if you are the host (as you are the source of truth)
-  // or if there's no data or the player isn't ready.
-  if (isHost || !data || !data.track || !player || typeof player.getPlayerState !== 'function') {
-    return;
-  }
-
-  // --- Authoritative State Enforcement ---
-  const playerState = player.getPlayerState();
-  
-  // If the server says "play" but the client's player is paused/unstarted, play it.
-  if (data.isPlaying && playerState !== YT.PlayerState.PLAYING) {
-    console.log("SyncPulse: Server says PLAY, client is not. Forcing play.");
-    player.playVideo();
-  } 
-  // If the server says "pause" but the client's player is still playing, pause it.
-  // This is the key fix for the "ghost playback" bug.
-  else if (!data.isPlaying && playerState === YT.PlayerState.PLAYING) {
-    console.log("SyncPulse: Server says PAUSE, client is playing. Forcing pause.");
-    player.pauseVideo();
-  }
-
-  // --- Time Drift Correction (only apply if the song is supposed to be playing) ---
-  if (data.isPlaying) {
-      const latency = Date.now() - data.serverTimestamp;
-      const authoritativePosition = data.position + latency;
-      const clientPosition = player.getCurrentTime() * 1000;
-      const drift = authoritativePosition - clientPosition;
-      
-      const now = Date.now();
-      // Only seek if the drift is significant (e.g., > 750ms) to avoid stuttering on minor fluctuations.
-      // And add a cooldown to prevent rapid-fire seeking.
-      if (Math.abs(drift) > 750 && (now - lastSeekTimestamp > 2000)) {
-          console.log(`Syncing guest player. Drift: ${Math.round(drift)}ms. Seeking.`);
-          player.seekTo(authoritativePosition / 1000, true);
-          lastSeekTimestamp = now; // Update the timestamp to enforce cooldown
+      if (
+        isHost ||
+        !data ||
+        !data.track ||
+        !player ||
+        typeof player.getPlayerState !== "function"
+      )
+        return;
+      const playerState = player.getPlayerState();
+      if (data.isPlaying && playerState !== YT.PlayerState.PLAYING) {
+        player.playVideo();
+      } else if (!data.isPlaying && playerState === YT.PlayerState.PLAYING) {
+        player.pauseVideo();
       }
-  }
-});
+      if (data.isPlaying) {
+        const latency = Date.now() - data.serverTimestamp;
+        const authoritativePosition = data.position + latency;
+        const clientPosition = player.getCurrentTime() * 1000;
+        const drift = authoritativePosition - clientPosition;
+        const now = Date.now();
+        if (Math.abs(drift) > 750 && now - lastSeekTimestamp > 2000) {
+          player.seekTo(authoritativePosition / 1000, true);
+          lastSeekTimestamp = now;
+        }
+      }
+    });
 
     socket.on("hostAssigned", () => {
       isHost = true;
@@ -267,31 +214,24 @@ socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
         ? renderSystemMessage(message.text)
         : renderChatMessage(message)
     );
-
-    socket.on("updateUserList", (users) => {
-      updateUserListUI(users);
-    });
-
-    socket.on("updateListenerCount", (count) => {
-      document.getElementById("listener-count-display").textContent = count;
-    });
+    socket.on("updateUserList", (users) => updateUserListUI(users));
+    socket.on(
+      "updateListenerCount",
+      (count) =>
+        (document.getElementById("listener-count-display").textContent = count)
+    );
   }
 
   function setupUIEventListeners() {
     playPauseBtn.addEventListener("click", () => {
-  if (!isHost || !player || typeof player.getPlayerState !== "function") return;
-
-  const playerState = player.getPlayerState();
-  const newIsPlayingState = playerState !== YT.PlayerState.PLAYING;
-
-  // THE FIX: The host ONLY tells the server about the change.
-  // It no longer calls player.playVideo() or player.pauseVideo() directly.
-  // It will wait for the server's newSongPlaying event, just like a guest.
-  socket.emit("hostPlaybackChange", {
-    roomId: currentRoomId,
-    isPlaying: newIsPlayingState,
-  });
-});
+      if (!isHost || !player || typeof player.getPlayerState !== "function")
+        return;
+      const playerState = player.getPlayerState();
+      socket.emit("hostPlaybackChange", {
+        roomId: currentRoomId,
+        isPlaying: playerState !== YT.PlayerState.PLAYING,
+      });
+    });
 
     document
       .getElementById("next-btn")
@@ -305,25 +245,24 @@ socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
         "click",
         () => isHost && socket.emit("playPrevTrack", { roomId: currentRoomId })
       );
-    document.getElementById("volume-slider").addEventListener("input", (e) => {
+
+    volumeSlider.addEventListener("input", (e) => {
       if (player && player.setVolume) player.setVolume(e.target.value);
-      localStorage.setItem('vibe_volume', e.target.value);
+      localStorage.setItem("vibe_volume", e.target.value);
     });
 
-   document.getElementById("progress-bar-container").addEventListener("click", (e) => {
-    if (!isHost || !currentSongDuration) return;
-    const bar = document.getElementById("progress-bar-container");
-    const seekRatio = e.offsetX / bar.clientWidth;
-    const seekTimeMs = currentSongDuration * seekRatio;
-
-    // THE FIX: The host ONLY tells the server about the seek.
-    // It no longer calls player.seekTo() or player.playVideo() directly.
-    socket.emit("hostPlaybackChange", {
-        roomId: currentRoomId,
-        position: seekTimeMs,
-        isPlaying: true // Seeking should always resume playback
-    });
-});
+    document
+      .getElementById("progress-bar-container")
+      .addEventListener("click", (e) => {
+        if (!isHost || !currentSongDuration) return;
+        const bar = document.getElementById("progress-bar-container");
+        const seekRatio = e.offsetX / bar.clientWidth;
+        socket.emit("hostPlaybackChange", {
+          roomId: currentRoomId,
+          position: currentSongDuration * seekRatio,
+          isPlaying: true,
+        });
+      });
 
     document.getElementById("chat-form").addEventListener("submit", (e) => {
       e.preventDefault();
@@ -334,20 +273,18 @@ socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
       }
     });
 
-    const handleLinkSubmit = (e) => { // No need for async here anymore
-  e.preventDefault();
-  const inputEl = isHost
-    ? document.getElementById("host-link-input")
-    : document.getElementById("guest-link-input");
-  const url = inputEl.value.trim();
-  if (!url) return;
-
-  // THIS IS THE CORRECT LINE. It *sends* the event to the server.
-  socket.emit("addYouTubeTrack", { roomId: currentRoomId, url: url });
-
-  inputEl.value = "";
-  showToast(isHost ? "Adding to playlist..." : "Suggestion sent!");
-};
+    const handleLinkSubmit = (e) => {
+      e.preventDefault();
+      const inputEl = isHost
+        ? document.getElementById("host-link-input")
+        : document.getElementById("guest-link-input");
+      const url = inputEl.value.trim();
+      if (url) {
+        socket.emit("addYouTubeTrack", { roomId: currentRoomId, url: url });
+        inputEl.value = "";
+        showToast(isHost ? "Adding to playlist..." : "Suggestion sent!");
+      }
+    };
     document
       .getElementById("host-link-form")
       .addEventListener("submit", handleLinkSubmit);
@@ -355,7 +292,6 @@ socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
       .getElementById("guest-link-form")
       .addEventListener("submit", handleLinkSubmit);
 
-    // --- New Tab Logic ---
     const tabButtons = document.querySelectorAll(".tab-btn");
     const tabContents = document.querySelectorAll(".tab-content");
     tabButtons.forEach((button) => {
@@ -363,71 +299,71 @@ socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
         const tab = button.dataset.tab;
         tabButtons.forEach((btn) => btn.classList.remove("active"));
         button.classList.add("active");
-        tabContents.forEach((content) => {
-          content.classList.remove("active");
-          if (content.id === `${tab}-content`) content.classList.add("active");
-        });
+        tabContents.forEach((content) =>
+          content.classList.toggle("active", content.id === `${tab}-content`)
+        );
       });
     });
   }
 
+  // THIS IS THE MOST IMPORTANT CLIENT-SIDE FIX
   function syncPlayerState(nowPlaying) {
-  // Always clear any existing timer when we receive a new state.
-  clearInterval(nowPlayingInterval);
+    clearInterval(nowPlayingInterval);
 
-  if (!nowPlaying || !nowPlaying.track) {
-    updateNowPlayingUI(null, false);
-    if (player && typeof player.stopVideo === 'function') player.stopVideo();
-    return;
-  }
-  
-  if (!player || typeof player.loadVideoById !== 'function') {
-    initialNowPlayingData = nowPlaying;
-    updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
-    return;
-  }
-
-  // Update the static UI elements (song name, art, etc.)
-  updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
-  
-  const { track, isPlaying, position, startTime } = nowPlaying;
-  
-  const currentVideoUrl = player.getVideoUrl();
-  const currentPlayerVideoId = currentVideoUrl ? (currentVideoUrl.match(/v=([^&]+)/) || [])[1] : null;
-
-  // Only call loadVideoById if the video is actually different to prevent re-buffering.
-  if (currentPlayerVideoId !== track.videoId) {
-    console.log(`Loading new track: ${track.videoId}`);
-    // We use the server's calculated position to start the video.
-    player.loadVideoById({
-        videoId: track.videoId,
-        startSeconds: position / 1000
-    });
-  }
-  
-  // --- THIS IS THE CRITICAL FIX FOR THE PROGRESS BAR & PAUSE-ON-RELOAD ---
-  if (isPlaying) {
-    // If the server says the song is playing, start the visual progress timer.
-    // We use the server's authoritative `startTime` as the reference point.
-    startProgressTimer(startTime, track.duration_ms);
-
-    // Now, command the player to play.
-    if (audioContextUnlocked) {
-      player.playVideo();
-    } else {
-      audioUnlockOverlay.style.display = 'grid';
+    if (!nowPlaying || !nowPlaying.track) {
+      updateNowPlayingUI(null, false);
+      if (player && typeof player.stopVideo === "function") player.stopVideo();
+      return;
     }
-  } else {
-    // If the server says the song is paused, we do two things:
-    // 1. Manually set the progress bar to the last known position.
-    const progressPercent = (position / track.duration_ms) * 100;
-    document.getElementById("progress-bar").style.width = `${progressPercent}%`;
-    document.getElementById("current-time").textContent = formatTime(position);
-    
-    // 2. Command the player to pause. This fixes the host "mute" issue.
-    player.pauseVideo();
+
+    if (!player || typeof player.loadVideoById !== "function") {
+      initialNowPlayingData = nowPlaying;
+      updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
+      return;
+    }
+
+    updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
+
+    const { track, isPlaying, position, serverTimestamp, startTime } =
+      nowPlaying;
+
+    const latency = Date.now() - serverTimestamp;
+    const correctedPositionInSeconds = (position + latency) / 1000;
+
+    const currentVideoUrl = player.getVideoUrl();
+    const currentPlayerVideoId = currentVideoUrl
+      ? (currentVideoUrl.match(/v=([^&]+)/) || [])[1]
+      : null;
+
+    if (currentPlayerVideoId !== track.videoId) {
+      player.loadVideoById({
+        videoId: track.videoId,
+        startSeconds: correctedPositionInSeconds,
+      });
+    } else {
+      const clientTime = player.getCurrentTime();
+      if (Math.abs(clientTime - correctedPositionInSeconds) > 1.5) {
+        player.seekTo(correctedPositionInSeconds, true);
+      }
+    }
+
+    if (isPlaying) {
+      startProgressTimer(startTime, track.duration_ms);
+      if (audioContextUnlocked) {
+        player.playVideo();
+      } else {
+        audioUnlockOverlay.style.display = "grid";
+      }
+    } else {
+      const progressPercent = (position / track.duration_ms) * 100;
+      document.getElementById(
+        "progress-bar"
+      ).style.width = `${progressPercent}%`;
+      document.getElementById("current-time").textContent =
+        formatTime(position);
+      player.pauseVideo();
+    }
   }
-}
 
   function startProgressTimer(startTime, duration_ms) {
     clearInterval(nowPlayingInterval);
@@ -436,6 +372,8 @@ socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
       if (elapsedTime >= duration_ms) {
         clearInterval(nowPlayingInterval);
         document.getElementById("progress-bar").style.width = "100%";
+        document.getElementById("current-time").textContent =
+          formatTime(duration_ms);
         return;
       }
       document.getElementById("progress-bar").style.width = `${
@@ -458,7 +396,7 @@ socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
     if (!nowPlaying || !nowPlaying.track) {
       artEl.src = "/placeholder.svg";
       nameEl.textContent = "Nothing Playing";
-      artistEl.textContent = "Add a YouTube link to start the vibe";
+      artistEl.textContent = "Add a song to start the vibe";
       bgEl.style.backgroundImage = "none";
       document.getElementById("progress-bar").style.width = "0%";
       document.getElementById("current-time").textContent = "0:00";
@@ -489,9 +427,7 @@ socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
     toast.className = `toast ${type}`;
     toast.textContent = message;
     container.appendChild(toast);
-    setTimeout(() => {
-      toast.remove();
-    }, 4000);
+    setTimeout(() => toast.remove(), 4000);
   }
 
   function renderChatMessage(message) {
@@ -509,6 +445,7 @@ socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
     chatMessages.appendChild(msgDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
+
   function renderSystemMessage(text) {
     const chatMessages = document.getElementById("chat-messages");
     const p = document.createElement("p");
@@ -533,74 +470,72 @@ socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
     });
   }
 
-function updatePlaylistUI({ playlist, nowPlayingIndex }) {
-  const queueList = document.getElementById("queue-list");
-  queueList.innerHTML = "";
-  if (!playlist || playlist.length === 0) {
-    queueList.innerHTML = '<p class="system-message">Playlist is empty</p>';
-    return;
-  }
-
-  playlist.forEach((item, index) => {
-    const queueItemDiv = document.createElement("div");
-    queueItemDiv.className = "queue-item";
-    queueItemDiv.dataset.index = index;
-
-    if (index === nowPlayingIndex) queueItemDiv.classList.add("is-playing");
-    if (index < nowPlayingIndex) queueItemDiv.classList.add("is-played");
-    if (isHost) queueItemDiv.classList.add("is-host-clickable");
-
-    const playIndicator = index === nowPlayingIndex ? '▶' : (index < nowPlayingIndex ? '✓' : index + 1);
-    
-    // --- THIS IS THE CRITICAL FIX ---
-    // Always build the HTML with the duration span for everyone.
-    // Also include a placeholder div for the host's controls.
-    queueItemDiv.innerHTML = `
-      <span class="queue-item__number">${playIndicator}</span>
-      <img src="${item.albumArt || "/placeholder.svg"}" alt="${item.name}" class="queue-item__art">
-      <div class="track-info">
-        <p>${item.name}</p>
-        <p>${item.artist || ""}</p>
-      </div>
-      <span class="queue-item__duration">${formatTime(item.duration_ms)}</span>
-      <div class="playlist-item-controls"></div>`;
-
-    // If the user is the host, find the placeholder and inject the delete button.
-    if (isHost) {
-      const controlsContainer = queueItemDiv.querySelector('.playlist-item-controls');
-      controlsContainer.innerHTML = `
-        <button class="delete-track-btn" title="Remove from playlist">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
-          </svg>
-        </button>`;
+  function updatePlaylistUI({ playlist, nowPlayingIndex }) {
+    const queueList = document.getElementById("queue-list");
+    queueList.innerHTML = "";
+    if (!playlist || playlist.length === 0) {
+      queueList.innerHTML = '<p class="system-message">Playlist is empty</p>';
+      return;
     }
-
-    queueList.appendChild(queueItemDiv);
-  });
-
-  // Event listener attachment logic remains the same and is correct.
-  if (isHost) {
-    queueList.querySelectorAll(".is-host-clickable").forEach((item) => {
-      item.addEventListener("click", (e) => {
-        if (e.target.closest('.delete-track-btn')) return;
-        const clickedIndex = parseInt(e.currentTarget.dataset.index, 10);
-        if (clickedIndex !== nowPlayingIndex) {
-          socket.emit("playTrackAtIndex", { roomId: currentRoomId, index: clickedIndex });
-        }
-      });
+    playlist.forEach((item, index) => {
+      const queueItemDiv = document.createElement("div");
+      queueItemDiv.className = "queue-item";
+      queueItemDiv.dataset.index = index;
+      if (index === nowPlayingIndex) queueItemDiv.classList.add("is-playing");
+      if (index < nowPlayingIndex) queueItemDiv.classList.add("is-played");
+      if (isHost) queueItemDiv.classList.add("is-host-clickable");
+      const playIndicator =
+        index === nowPlayingIndex
+          ? "▶"
+          : index < nowPlayingIndex
+          ? "✓"
+          : index + 1;
+      queueItemDiv.innerHTML = `
+        <span class="queue-item__number">${playIndicator}</span>
+        <img src="${item.albumArt || "/placeholder.svg"}" alt="${
+        item.name
+      }" class="queue-item__art">
+        <div class="track-info"><p>${item.name}</p><p>${
+        item.artist || ""
+      }</p></div>
+        <span class="queue-item__duration">${formatTime(
+          item.duration_ms
+        )}</span>
+        <div class="playlist-item-controls"></div>`;
+      if (isHost) {
+        const controlsContainer = queueItemDiv.querySelector(
+          ".playlist-item-controls"
+        );
+        controlsContainer.innerHTML = `<button class="delete-track-btn" title="Remove from playlist"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg></button>`;
+      }
+      queueList.appendChild(queueItemDiv);
     });
-
-    queueList.querySelectorAll(".delete-track-btn").forEach((button) => {
-      button.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const indexToDelete = parseInt(e.currentTarget.closest(".queue-item").dataset.index, 10);
-        socket.emit("deleteTrack", { roomId: currentRoomId, indexToDelete });
-        showToast("Track removed from playlist.");
+    if (isHost) {
+      queueList.querySelectorAll(".is-host-clickable").forEach((item) => {
+        item.addEventListener("click", (e) => {
+          if (e.target.closest(".delete-track-btn")) return;
+          const clickedIndex = parseInt(e.currentTarget.dataset.index, 10);
+          if (clickedIndex !== nowPlayingIndex) {
+            socket.emit("playTrackAtIndex", {
+              roomId: currentRoomId,
+              index: clickedIndex,
+            });
+          }
+        });
       });
-    });
+      queueList.querySelectorAll(".delete-track-btn").forEach((button) => {
+        button.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const indexToDelete = parseInt(
+            e.currentTarget.closest(".queue-item").dataset.index,
+            10
+          );
+          socket.emit("deleteTrack", { roomId: currentRoomId, indexToDelete });
+          showToast("Track removed from playlist.");
+        });
+      });
+    }
   }
-}
 
   function updateSuggestionsUI(suggestions) {
     const suggestionsList = document.getElementById("suggestions-list");
@@ -609,7 +544,6 @@ function updatePlaylistUI({ playlist, nowPlayingIndex }) {
     );
     suggestionsList.innerHTML = "";
     suggestionsCountDisplay.textContent = `(${suggestions.length})`;
-
     if (!suggestions || suggestions.length === 0) {
       suggestionsList.innerHTML =
         '<p class="system-message">No suggestions yet</p>';
@@ -620,29 +554,19 @@ function updatePlaylistUI({ playlist, nowPlayingIndex }) {
       suggestionDiv.className = "suggestion-item";
       suggestionDiv.dataset.id = item.suggestionId;
       const hostControls = isHost
-        ? `<div class="suggestion-controls">
-             <button class="suggestion-approve" title="Approve">
-               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
-             </button>
-             <button class="suggestion-reject" title="Reject">
-               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
-             </button>
-           </div>`
+        ? `<div class="suggestion-controls"><button class="suggestion-approve" title="Approve"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg></button><button class="suggestion-reject" title="Reject"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg></button></div>`
         : "";
-      suggestionDiv.innerHTML = `
-        <img src="${item.albumArt || "/placeholder.svg"}" alt="${
+      suggestionDiv.innerHTML = `<img src="${
+        item.albumArt || "/placeholder.svg"
+      }" alt="${
         item.name
-      }" class="queue-item__art">
-        <div class="track-info">
-          <p>${item.name}</p>
-          <p class="suggestion-item__suggester">by ${
-            item.artist
-          } - suggested by ${item.suggester.name}</p>
-        </div>
-        ${hostControls}`;
+      }" class="queue-item__art"><div class="track-info"><p>${
+        item.name
+      }</p><p class="suggestion-item__suggester">by ${
+        item.artist
+      } - suggested by ${item.suggester.name}</p></div>${hostControls}`;
       suggestionsList.appendChild(suggestionDiv);
     });
-
     if (isHost) {
       suggestionsList
         .querySelectorAll(".suggestion-approve")
