@@ -4,22 +4,37 @@
     <meta charset="UTF-8" />
     <title>Vibe Room</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="You've been invited to a VIBES listening party. Join the room to listen to music in real-time with friends!">
+    <meta
+      name="description"
+      content="You've been invited to a VIBES listening party. Join the room to listen to music in real-time with friends!"
+    />
     <link
       rel="icon"
       type="image/x-icon"
       href="https://cdn-icons-png.flaticon.com/512/11563/11563315.png"
     />
-    
+
     <meta property="og:title" content="You're invited to a Vibe!" />
-    <meta property="og:description" content="Join the room to listen to music in real-time with friends." />
-    <meta property="og:image" content="https://www.svgrepo.com/show/520059/vibe-music.svg" />
+    <meta
+      property="og:description"
+      content="Join the room to listen to music in real-time with friends."
+    />
+    <meta
+      property="og:image"
+      content="https://www.svgrepo.com/show/520059/vibe-music.svg"
+    />
     <meta property="og:type" content="website" />
-    
+
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="You're invited to a Vibe!" />
-    <meta name="twitter:description" content="Join the room to listen to music in real-time with friends." />
-    <meta name="twitter:image" content="https://www.svgrepo.com/show/520059/vibe-music.svg" />
+    <meta
+      name="twitter:description"
+      content="Join the room to listen to music in real-time with friends."
+    />
+    <meta
+      name="twitter:image"
+      content="https://www.svgrepo.com/show/520059/vibe-music.svg"
+    />
 
     <link rel="stylesheet" href="/room.css" />
   </head>
@@ -155,10 +170,10 @@
           </div>
           <div class="panel-section queue-section">
             <h4 class="section-title">Up Next</h4>
-            <div id="queue-list" class="scrollable-list">
-            </div>
+            <div id="queue-list" class="scrollable-list"></div>
           </div>
           <div class="panel-section add-vibe-section">
+            <!-- This single wrapper will have the is-host or is-guest class added by JS -->
             <div id="add-vibe-wrapper">
               <div class="host-only-form">
                 <h4 class="section-title">Add by Link</h4>
@@ -173,6 +188,7 @@
                   <button type="submit" class="form-action-btn">Add</button>
                 </form>
               </div>
+
               <div class="guest-only-form">
                 <h4 class="section-title">Suggest by Link</h4>
                 <form id="guest-link-form" class="link-form">
@@ -238,8 +254,7 @@
             </button>
           </div>
           <div id="chat-content" class="tab-content active">
-            <div id="chat-messages" class="scrollable-list">
-            </div>
+            <div id="chat-messages" class="scrollable-list"></div>
             <form id="chat-form" class="chat-form">
               <input
                 type="text"
@@ -252,12 +267,10 @@
             </form>
           </div>
           <div id="users-content" class="tab-content">
-            <div id="user-list" class="scrollable-list">
-            </div>
+            <div id="user-list" class="scrollable-list"></div>
           </div>
           <div id="suggestions-content" class="tab-content">
-            <div id="suggestions-list" class="scrollable-list">
-            </div>
+            <div id="suggestions-list" class="scrollable-list"></div>
           </div>
         </div>
       </div>

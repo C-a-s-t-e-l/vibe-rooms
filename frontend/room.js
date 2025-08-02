@@ -114,28 +114,40 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     socket.on("roomState", (data) => {
-      if (!data) return (window.location.href = "/");
+      if (!data) {
+        showToast("Room not found or has been deleted.", "error");
+        localStorage.removeItem("vibe_token");
+        return (window.location.href = "/");
+      }
+
       currentRoomId = data.id;
       document.title = data.name;
       isHost = data.isHost;
+
       document.getElementById("room-name-display").textContent = data.name;
       document.getElementById("listener-count-display").textContent =
         data.listenerCount;
+
       const addVibeWrapper = document.getElementById("add-vibe-wrapper");
-      addVibeWrapper.classList.toggle("is-host", isHost);
-      addVibeWrapper.classList.toggle("is-guest", !isHost);
+      
+      addVibeWrapper.className = isHost ? "is-host" : "is-guest";
+
       const hostControlsWrapper = document.getElementById(
         "host-controls-wrapper"
       );
       hostControlsWrapper.classList.toggle("is-guest", !isHost);
+
       currentPlaylistState = data.playlistState || {
         playlist: [],
         nowPlayingIndex: -1,
       };
       updatePlaylistUI(currentPlaylistState);
+
       currentSuggestions = data.suggestions || [];
       updateSuggestionsUI(currentSuggestions);
+
       updateUserListUI(data.userList || []);
+
       const chatMessages = document.getElementById("chat-messages");
       chatMessages.innerHTML = "";
       if (data.chatHistory) {
@@ -143,6 +155,7 @@ document.addEventListener("DOMContentLoaded", () => {
           (message) => !message.system && renderChatMessage(message)
         );
       }
+
       syncPlayerState(data.nowPlaying);
     });
 
