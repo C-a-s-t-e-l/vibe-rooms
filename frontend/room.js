@@ -190,40 +190,44 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     socket.on("syncPulse", (data) => {
-      if (
-        isHost ||
-        !data ||
-        !data.track ||
-        !player ||
-        typeof player.getPlayerState !== "function"
-      )
-        return;
+  // Ignore pulses if you are the host (as you are the source of truth)
+  // or if there's no data or the player isn't ready.
+  if (isHost || !data || !data.track || !player || typeof player.getPlayerState !== 'function') {
+    return;
+  }
+
+  // --- Authoritative State Enforcement ---
+  const playerState = player.getPlayerState();
+  
+  // If the server says "play" but the client's player is paused/unstarted, play it.
+  if (data.isPlaying && playerState !== YT.PlayerState.PLAYING) {
+    console.log("SyncPulse: Server says PLAY, client is not. Forcing play.");
+    player.playVideo();
+  } 
+  // If the server says "pause" but the client's player is still playing, pause it.
+  // This is the key fix for the "ghost playback" bug.
+  else if (!data.isPlaying && playerState === YT.PlayerState.PLAYING) {
+    console.log("SyncPulse: Server says PAUSE, client is playing. Forcing pause.");
+    player.pauseVideo();
+  }
+
+  // --- Time Drift Correction (only apply if the song is supposed to be playing) ---
+  if (data.isPlaying) {
       const latency = Date.now() - data.serverTimestamp;
       const authoritativePosition = data.position + latency;
       const clientPosition = player.getCurrentTime() * 1000;
       const drift = authoritativePosition - clientPosition;
+      
       const now = Date.now();
-      if (Math.abs(drift) > 150 && now - lastSeekTimestamp > 1000) {
-        const trackDuration = player.getDuration() * 1000;
-        if (authoritativePosition < trackDuration - 500) {
-          console.log(
-            `Syncing guest player. Drift: ${Math.round(drift)}ms. Seeking.`
-          );
+      // Only seek if the drift is significant (e.g., > 750ms) to avoid stuttering on minor fluctuations.
+      // And add a cooldown to prevent rapid-fire seeking.
+      if (Math.abs(drift) > 750 && (now - lastSeekTimestamp > 2000)) {
+          console.log(`Syncing guest player. Drift: ${Math.round(drift)}ms. Seeking.`);
           player.seekTo(authoritativePosition / 1000, true);
-          lastSeekTimestamp = now;
-        }
+          lastSeekTimestamp = now; // Update the timestamp to enforce cooldown
       }
-      const playerState = player.getPlayerState();
-      if (data.isPlaying && playerState !== YT.PlayerState.PLAYING) {
-        player.playVideo();
-      } else if (
-        !data.isPlaying &&
-        (playerState === YT.PlayerState.PLAYING ||
-          playerState === YT.PlayerState.BUFFERING)
-      ) {
-        player.pauseVideo();
-      }
-    });
+  }
+});
 
     socket.on("hostAssigned", () => {
       isHost = true;
