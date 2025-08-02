@@ -460,12 +460,13 @@ document.addEventListener("DOMContentLoaded", () => {
     totalTimeEl.textContent = formatTime(track.duration_ms);
   }
 
-  function updatePlayPauseIcon(isPlaying) {
-    playPauseBtn.innerHTML = isPlaying ? pauseIcon : playIcon;
-    document
-      .querySelector(".now-playing-card")
-      .classList.toggle("is-playing", isPlaying);
+ function updatePlayPauseIcon(isPlaying) {
+  playPauseBtn.innerHTML = isPlaying ? pauseIcon : playIcon;
+  const nowPlayingElement = document.querySelector(".now-playing-hero"); // <-- USE THE CORRECT CLASS
+  if (nowPlayingElement) { // <-- ADD A CHECK TO BE SAFE
+    nowPlayingElement.classList.toggle("is-playing", isPlaying);
   }
+}
 
   function showToast(message, type = "success") {
     const container = document.getElementById("toast-container");
