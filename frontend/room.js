@@ -259,17 +259,54 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
 
-    const handleLinkSubmit = (e) => {
-      e.preventDefault();
-      const inputEl = isHost
-        ? document.getElementById("host-link-input")
-        : document.getElementById("guest-link-input");
-      const url = inputEl.value.trim();
-      if (!url) return;
-      socket.emit("addYouTubeTrack", { roomId: currentRoomId, url: url });
-      showToast(isHost ? "Added to playlist!" : "Suggestion sent!");
-      inputEl.value = "";
+    const handleLinkSubmit = async (e) => { // Make the function async
+  e.preventDefault();
+  const inputEl = isHost ? document.getElementById("host-link-input") : document.getElementById("guest-link-input");
+  const url = inputEl.value.trim();
+  if (!url) return;
+  inputEl.value = ""; // Clear the input immediately
+
+  try {
+    // Step 1: Frontend calls YouTube's oEmbed endpoint. This is quota-free and reliable.
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+    const response = await fetch(oembedUrl);
+
+    if (!response.ok) {
+        throw new Error("Could not fetch video information.");
+    }
+
+    const data = await response.json();
+
+    // The oEmbed endpoint doesn't give us duration or videoId directly. We have to be clever.
+    const videoIdMatch = url.match(/(?:v=|\/)([0-9A-Za-z_-]{11}).*/);
+    if (!videoIdMatch || !videoIdMatch[1]) {
+        throw new Error("Could not parse Video ID from URL.");
+    }
+    const videoId = videoIdMatch[1];
+    
+    // We can't get duration easily, so we'll let the backend fill it in later if needed,
+    // or better yet, get it from the Iframe Player API once it loads. For now, we set it to 0.
+
+    // Step 2: Build the track object on the frontend.
+    const trackData = {
+      videoId: videoId,
+      name: data.title,
+      artist: data.author_name,
+      albumArt: data.thumbnail_url,
+      duration_ms: 0, // We'll handle duration later
+      url: url,
+      source: "youtube",
     };
+
+    // Step 3: Send the complete track object to the server.
+    socket.emit("addYouTubeTrack", { roomId: currentRoomId, trackData: trackData });
+    showToast(isHost ? "Added to playlist!" : "Suggestion sent!");
+
+  } catch (error) {
+    console.error("Failed to add track:", error);
+    showToast("Sorry, that link seems to be invalid.", "error");
+  }
+};
     document
       .getElementById("host-link-form")
       .addEventListener("submit", handleLinkSubmit);
