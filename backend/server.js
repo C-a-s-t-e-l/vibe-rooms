@@ -578,35 +578,39 @@ function handleHostPlaybackChange(socket, data) {
   const room = rooms[data.roomId];
   if (!room || socket.user.id !== room.hostUserId || !room.nowPlaying) return;
 
-  // Always clear the song-end timer when the host interacts. We'll set it again if needed.
+  // Always clear the auto-skip timer when the host interacts.
   if (room.songEndTimer) clearTimeout(room.songEndTimer);
 
-  // Update the playing state based on the host's action
+  // --- THIS IS THE CRITICAL FIX ---
+  // Before we change the isPlaying state, we MUST capture the current position.
+  // This calculates the song's progress right up to this millisecond.
+  const currentPosition = Date.now() - room.nowPlaying.startTime;
+  room.nowPlaying.position = currentPosition;
+
+  // Now, update the playing state based on the host's action.
   room.isPlaying = data.isPlaying;
 
-  // If the host seeks, update the position directly
+  // If the host also sent a new position (i.e., they seeked the bar), we honor that.
   if (data.position !== undefined) {
     room.nowPlaying.position = data.position;
   }
-
-  // Recalculate the 'startTime' to keep the position accurate relative to the server's clock.
-  // If paused, this freezes the position. If playing, it sets a new reference point.
+  
+  // Finally, we reset the `startTime` reference based on the now-correct position.
+  // This "freezes" the position correctly when paused.
   room.nowPlaying.startTime = Date.now() - room.nowPlaying.position;
 
-  // If the music is now playing, we need to set a new timer for when the song should auto-skip.
+  // If we are resuming playback, set a new timer for when the song should end.
   if (room.isPlaying) {
     const remainingDuration = room.nowPlaying.track.duration_ms - room.nowPlaying.position;
     room.songEndTimer = setTimeout(
       () => playNextSong(data.roomId),
-      remainingDuration + 1500 // A buffer for network delays
+      remainingDuration + 1500
     );
   }
 
-  // THE CRITICAL FIX: Broadcast a full 'newSongPlaying' event.
-  // This is a "strong" update that forces all clients to re-sync their state,
-  // including the crucial isPlaying flag. This is what fixes the "ghost playback".
+  // Broadcast a "strong" update to all clients to force them into the correct state.
   io.to(data.roomId).emit("newSongPlaying", getAuthoritativeNowPlaying(room));
-  broadcastLobbyData(); // Also update the lobby's view of this room
+  broadcastLobbyData();
 }
 
 function handleSendMessage(socket, msg) {
