@@ -12,6 +12,8 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const session = require("express-session");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
+const axios = require('axios');
+const API_KEY = process.env.YOUTUBE_API_KEY;
 // const play = require("play-dl");
 const fs = require("fs");
 
@@ -158,35 +160,114 @@ io.on("connection", (socket) => {
 });
 
 // --> CHANGE: This entire function is now simpler and quota-free.
-async function handleAddYouTubeTrack(socket, { roomId, trackData }) { // We now receive 'trackData' instead of 'url'
+async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
   if (!room) return;
-  
-  // Basic validation to ensure we received a valid object
-  if (!trackData || !trackData.videoId || !trackData.name) {
-    console.error("Received invalid track data from client");
-    return;
-  }
 
-  const isHost = socket.user.id === room.hostUserId;
+  try {
+    const playlistId = getPlaylistIdFromUrl(url);
+    const videoId = getVideoIdFromUrl(url);
+    let tracks = [];
 
-  // Your existing logic for host vs guest remains the same. It was perfect.
-  if (isHost) {
-    room.playlist.push(trackData);
-    if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
-      playTrackAtIndex(roomId, room.playlist.length - 1);
+    if (playlistId) {
+      // It's a playlist URL
+      console.log(`Fetching playlist: ${playlistId}`);
+      tracks = await getPlaylistTracks(playlistId);
+    } else if (videoId) {
+      // It's a single video URL
+      console.log(`Fetching single video: ${videoId}`);
+      tracks = await getVideoDetails([videoId]);
     } else {
-      io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
+      // Invalid URL
+      socket.emit("error", { message: "Invalid YouTube URL provided." });
+      return;
     }
-  } else {
-    const suggestion = {
-      ...trackData,
-      suggestionId: `sugg_${Date.now()}_${Math.random()}`,
-      suggester: { id: socket.user.id, name: socket.user.displayName },
-    };
-    room.suggestions.push(suggestion);
-    io.to(roomId).emit("suggestionsUpdated", room.suggestions);
+
+    if (tracks.length === 0) {
+      socket.emit("error", { message: "Could not find any videos from that URL." });
+      return;
+    }
+
+    // Now, add the fetched tracks to the room
+    const isHost = socket.user.id === room.hostUserId;
+    if (isHost) {
+      room.playlist.push(...tracks); // Add all tracks to the playlist
+      if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
+        playTrackAtIndex(roomId, 0); // Start playing the first song of the batch
+      } else {
+        io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
+      }
+    } else {
+      // For guests, we only add the *first* track of the playlist as a suggestion to prevent spam
+      const suggestion = {
+        ...tracks[0],
+        suggestionId: `sugg_${Date.now()}_${Math.random()}`,
+        suggester: { id: socket.user.id, name: socket.user.displayName },
+      };
+      room.suggestions.push(suggestion);
+      io.to(roomId).emit("suggestionsUpdated", room.suggestions);
+    }
+
+  } catch (error) {
+    console.error("YouTube API Error:", error.response ? error.response.data : error.message);
+    socket.emit("error", { message: "Failed to fetch video data from YouTube." });
   }
+}
+
+// --- Helper Functions for YouTube API ---
+
+function getPlaylistIdFromUrl(url) {
+  const match = url.match(/[&?]list=([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : null;
+}
+
+function getVideoIdFromUrl(url) {
+    const patterns = [
+        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/,
+        /(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]+)/,
+        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]+)/,
+        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/v\/([a-zA-Z0-9_-]+)/
+    ];
+    for (const pattern of patterns) {
+        const match = url.match(pattern);
+        if (match) return match[1];
+    }
+    return null;
+}
+
+
+async function getPlaylistTracks(playlistId) {
+  const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&playlistId=${playlistId}&key=${API_KEY}`;
+  const response = await axios.get(url);
+  const videoIds = response.data.items.map(item => item.snippet.resourceId.videoId);
+  return getVideoDetails(videoIds);
+}
+
+async function getVideoDetails(videoIds) {
+  // YouTube API allows fetching details for up to 50 videos at once.
+  const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=${videoIds.join(',')}&key=${API_KEY}`;
+  const response = await axios.get(url);
+
+  return response.data.items.map(item => ({
+    videoId: item.id,
+    name: item.snippet.title,
+    artist: item.snippet.channelTitle,
+    albumArt: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default.url,
+    // Convert ISO 8601 duration (e.g., "PT2M34S") to milliseconds
+    duration_ms: parseISO8601Duration(item.contentDetails.duration),
+    url: `https://www.youtube.com/watch?v=${item.id}`,
+    source: 'youtube',
+  }));
+}
+
+function parseISO8601Duration(isoDuration) {
+    const regex = /P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/;
+    const matches = isoDuration.match(regex);
+    const seconds = (parseFloat(matches[7] || 0));
+    const minutes = (parseInt(matches[6] || 0));
+    const hours = (parseInt(matches[5] || 0));
+    // We can ignore days/weeks/etc for music videos
+    return (hours * 3600 + minutes * 60 + seconds) * 1000;
 }
 
 function handleHostUpdateDuration(socket, { roomId, trackIndex, durationMs }) {
