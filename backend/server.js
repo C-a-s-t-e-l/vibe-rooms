@@ -11,6 +11,11 @@ const session = require("express-session");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const axios = require("axios");
+const pgSession = require('connect-pg-simple')(session);
+const { Pool } = require('pg');
+const pool = new Pool({
+  connectionString: process.env.SUPABASE_DATABASE_URL, 
+});
 const API_KEY = process.env.YOUTUBE_API_KEY;
 
 const app = express();
@@ -33,10 +38,16 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 const sessionMiddleware = session({
+  store: new pgSession({
+    pool: pool,                // Connection pool
+    tableName: 'user_sessions', // Name of the table to store sessions in
+    createTableIfMissing: true // Automatically create the table
+  }),
   secret: process.env.SESSION_SECRET,
   resave: false,
-  saveUninitialized: true,
+  saveUninitialized: false, // Recommended for production stores
   cookie: {
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     secure: process.env.NODE_ENV === "production",
     sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
   },
@@ -60,8 +71,17 @@ passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
 app.get(
   "/auth/google",
+  (req, res, next) => {
+    // --- THIS IS THE FIX ---
+    // If a 'redirect' query parameter exists, save it in the session before authenticating.
+    if (req.query.redirect) {
+      req.session.redirectUrl = req.query.redirect;
+    }
+    next();
+  },
   passport.authenticate("google", { scope: ["profile", "email"] })
 );
+
 app.get(
   "/auth/google/callback",
   passport.authenticate("google", {
@@ -77,7 +97,19 @@ app.get(
     const token = jwt.sign(payload, process.env.SESSION_SECRET, {
       expiresIn: "1d",
     });
-    res.redirect(`${FRONTEND_URL}?token=${token}`);
+
+    // --- THIS IS THE FIX ---
+    // Check if we saved a redirect URL in the session.
+    const redirectUrl = req.session.redirectUrl;
+    req.session.redirectUrl = null; // Clear it after use.
+
+    let finalRedirect = `${FRONTEND_URL}?token=${token}`;
+    if (redirectUrl) {
+      // If it exists, append it to the final redirect URL.
+      finalRedirect += `&redirect=${encodeURIComponent(redirectUrl)}`;
+    }
+    
+    res.redirect(finalRedirect);
   }
 );
 
