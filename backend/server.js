@@ -12,7 +12,7 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const session = require("express-session");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
-const play = require("play-dl");
+// const play = require("play-dl");
 const fs = require("fs");
 
 
@@ -157,82 +157,34 @@ io.on("connection", (socket) => {
 });
 
 // --> CHANGE: This entire function is now simpler and quota-free.
-async function handleAddYouTubeTrack(socket, { roomId, url }) {
+async function handleAddYouTubeTrack(socket, { roomId, trackData }) { // We now receive 'trackData' instead of 'url'
   const room = rooms[roomId];
-  if (!room) {
-    // Failsafe in case the room doesn't exist.
+  if (!room) return;
+  
+  // Basic validation to ensure we received a valid object
+  if (!trackData || !trackData.videoId || !trackData.name) {
+    console.error("Received invalid track data from client");
     return;
   }
+
   const isHost = socket.user.id === room.hostUserId;
 
-  try {
-    // Step 1: Prepare options for play-dl.
-    // This is where we ensure our proxy is used if it's available.
-    const infoOptions = {};
-    if (process.env.PROXY_URL) {
-      console.log("--> Using proxy for play-dl request...");
-      infoOptions.proxy = process.env.PROXY_URL;
-    }
-
-    // Step 2: Get video metadata using play-dl (NOT the official API).
-    // This is the "scrape" that saves our quota. It's targeted and reliable.
-    const info = await play.video_info(url, infoOptions);
-    const video = info.video_details;
-
-    // Step 3: Validate the result from play-dl.
-    if (!video || !video.id) {
-      // If play-dl couldn't get the info, throw an error to be caught below.
-      throw new Error("Could not retrieve valid video details from the provided URL.");
-    }
-
-    // Step 4: Create our standard track object with the scraped data.
-    // This object structure is what the rest of your app expects.
-    const trackToAdd = {
-      videoId: video.id, // CRUCIAL: The ID for the Iframe Player on the frontend.
-      name: video.title || "Untitled",
-      artist: video.channel ? video.channel.name : "Unknown Artist",
-      albumArt: video.thumbnails[0]?.url || "/placeholder.svg", // We successfully get the thumbnail!
-      duration_ms: video.durationInSec * 1000,
-      url: video.url, // Keep the original URL for reference.
-      source: "youtube",
-    };
-
-    // Step 5: Add the track to either the playlist (if host) or suggestions (if guest).
-    // This is your existing logic, which was already perfect.
-    if (isHost) {
-      room.playlist.push(trackToAdd);
-      
-      // If the playlist was empty, automatically start playing the new song.
-      if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
-        playTrackAtIndex(roomId, room.playlist.length - 1);
-      } else {
-        // Otherwise, just send the updated playlist to all clients.
-        io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
-      }
+  // Your existing logic for host vs guest remains the same. It was perfect.
+  if (isHost) {
+    room.playlist.push(trackData);
+    if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
+      playTrackAtIndex(roomId, room.playlist.length - 1);
     } else {
-      // The user is a guest, so create a suggestion object.
-      const suggestion = {
-        ...trackToAdd,
-        suggestionId: `sugg_${Date.now()}_${Math.random()}`,
-        suggester: { id: socket.user.id, name: socket.user.displayName },
-      };
-      room.suggestions.push(suggestion);
-      // Send the updated suggestions list to all clients.
-      io.to(roomId).emit("suggestionsUpdated", room.suggestions);
+      io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
     }
-
-  } catch (e) {
-    // Step 6: Handle any errors that occurred during the process.
-    console.error(`ERROR in handleAddYouTubeTrack for URL "${url}":`, e.message);
-    
-    // Let the frontend know the request failed, in case it wants to remove a loading spinner.
-    socket.emit("addTrackFailed", { url: url });
-    
-    // Send a user-friendly error message to the chat in that room.
-    socket.emit("newChatMessage", {
-      system: true,
-      text: "Sorry, that link could not be processed. It might be private, invalid, or age-restricted.",
-    });
+  } else {
+    const suggestion = {
+      ...trackData,
+      suggestionId: `sugg_${Date.now()}_${Math.random()}`,
+      suggester: { id: socket.user.id, name: socket.user.displayName },
+    };
+    room.suggestions.push(suggestion);
+    io.to(roomId).emit("suggestionsUpdated", room.suggestions);
   }
 }
 
