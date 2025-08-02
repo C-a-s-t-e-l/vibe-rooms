@@ -12,12 +12,10 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const session = require("express-session");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
-const axios = require('axios');
+const axios = require("axios");
 const API_KEY = process.env.YOUTUBE_API_KEY;
 // const play = require("play-dl");
 const fs = require("fs");
-
-
 
 const app = express();
 const server = http.createServer(app);
@@ -155,7 +153,33 @@ io.on("connection", (socket) => {
       playTrackAtIndex(data.roomId, data.index);
   });
   socket.on("deleteTrack", (data) => handleDeleteTrack(socket, data));
-  socket.on("hostUpdateDuration", (data) => handleHostUpdateDuration(socket, data));
+  socket.on("hostUpdateDuration", (data) =>
+    handleHostUpdateDuration(socket, data)
+  );
+  socket.on("requestPerfectSync", ({ roomId }) => {
+    const room = rooms[roomId];
+    if (!room || !room.hostUserId) return;
+
+    // Find the host's socket
+    const hostSocket = Object.values(room.listeners).find(
+      (l) => l.user.id === room.hostUserId
+    );
+    if (hostSocket && io.sockets.sockets.get(hostSocket.socketId)) {
+      // Ask the host for their current player time
+      io.sockets.sockets
+        .get(hostSocket.socketId)
+        .emit("getHostTimestamp", { requesterId: socket.id });
+    }
+  });
+
+  // The host's client has responded with its current time
+  socket.on("sendHostTimestamp", ({ requesterId, hostPlayerTime }) => {
+    const requesterSocket = io.sockets.sockets.get(requesterId);
+    if (requesterSocket) {
+      // Forward the perfect timestamp directly to the guest who asked for it
+      requesterSocket.emit("receivePerfectSync", { hostPlayerTime });
+    }
+  });
   // --- DELETED: The 'searchYouTube' listener has been removed ---
 });
 
@@ -180,12 +204,18 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     } else {
       // Invalid URL
       // It's good practice to notify the user who sent the invalid link.
-      socket.emit("toast", { type: "error", message: "Invalid YouTube URL provided." });
+      socket.emit("toast", {
+        type: "error",
+        message: "Invalid YouTube URL provided.",
+      });
       return;
     }
 
     if (tracks.length === 0) {
-      socket.emit("toast", { type: "error", message: "Could not find any videos from that URL." });
+      socket.emit("toast", {
+        type: "error",
+        message: "Could not find any videos from that URL.",
+      });
       return;
     }
 
@@ -194,9 +224,12 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     if (isHost) {
       // Host adds all tracks directly to the main playlist.
       room.playlist.push(...tracks);
-      
+
       // Notify the host that tracks were added.
-      socket.emit("toast", { type: "success", message: `Added ${tracks.length} track(s) to the playlist!` });
+      socket.emit("toast", {
+        type: "success",
+        message: `Added ${tracks.length} track(s) to the playlist!`,
+      });
 
       // If nothing was playing, start the first song of the newly added batch.
       if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
@@ -210,7 +243,7 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
     } else {
       // --- THIS IS THE UPDATED GUEST LOGIC ---
       // Guest's submission becomes suggestions for all fetched tracks.
-      const newSuggestions = tracks.map(track => ({
+      const newSuggestions = tracks.map((track) => ({
         ...track,
         suggestionId: `sugg_${Date.now()}_${Math.random()}`,
         suggester: { id: socket.user.id, name: socket.user.displayName },
@@ -218,19 +251,27 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
 
       // Add all the new suggestions to the room's suggestion list.
       room.suggestions.push(...newSuggestions);
-      
+
       // Notify the guest that their suggestions were received.
-      socket.emit("toast", { type: "success", message: `Sent ${newSuggestions.length} suggestion(s) to the host!` });
+      socket.emit("toast", {
+        type: "success",
+        message: `Sent ${newSuggestions.length} suggestion(s) to the host!`,
+      });
 
       // Notify all clients of the updated suggestions list so it appears in the UI.
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
-
   } catch (error) {
     // Detailed logging for the server admin.
-    console.error("YouTube API Error:", error.response ? error.response.data.error.message : error.message);
+    console.error(
+      "YouTube API Error:",
+      error.response ? error.response.data.error.message : error.message
+    );
     // A generic, user-friendly error for the client.
-    socket.emit("toast", { type: "error", message: "Failed to fetch video data from YouTube." });
+    socket.emit("toast", {
+      type: "error",
+      message: "Failed to fetch video data from YouTube.",
+    });
   }
 }
 
@@ -242,52 +283,57 @@ function getPlaylistIdFromUrl(url) {
 }
 
 function getVideoIdFromUrl(url) {
-    const patterns = [
-        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/,
-        /(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]+)/,
-        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]+)/,
-        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/v\/([a-zA-Z0-9_-]+)/
-    ];
-    for (const pattern of patterns) {
-        const match = url.match(pattern);
-        if (match) return match[1];
-    }
-    return null;
+  const patterns = [
+    /(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/,
+    /(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]+)/,
+    /(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]+)/,
+    /(?:https?:\/\/)?(?:www\.)?youtube\.com\/v\/([a-zA-Z0-9_-]+)/,
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
 }
-
 
 async function getPlaylistTracks(playlistId) {
   const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&playlistId=${playlistId}&key=${API_KEY}`;
   const response = await axios.get(url);
-  const videoIds = response.data.items.map(item => item.snippet.resourceId.videoId);
+  const videoIds = response.data.items.map(
+    (item) => item.snippet.resourceId.videoId
+  );
   return getVideoDetails(videoIds);
 }
 
 async function getVideoDetails(videoIds) {
   // YouTube API allows fetching details for up to 50 videos at once.
-  const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=${videoIds.join(',')}&key=${API_KEY}`;
+  const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=${videoIds.join(
+    ","
+  )}&key=${API_KEY}`;
   const response = await axios.get(url);
 
-  return response.data.items.map(item => ({
+  return response.data.items.map((item) => ({
     videoId: item.id,
     name: item.snippet.title,
     artist: item.snippet.channelTitle,
-    albumArt: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default.url,
+    albumArt:
+      item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default.url,
     // Convert ISO 8601 duration (e.g., "PT2M34S") to milliseconds
     duration_ms: parseISO8601Duration(item.contentDetails.duration),
     url: `https://www.youtube.com/watch?v=${item.id}`,
-    source: 'youtube',
+    source: "youtube",
   }));
 }
 
 function parseISO8601Duration(isoDuration) {
-    const regex = /P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/;
-    const matches = isoDuration.match(regex);
-    const seconds = (parseFloat(matches[7] || 0));
-    const minutes = (parseInt(matches[6] || 0));
-    const hours = (parseInt(matches[5] || 0));
-    // We can ignore days/weeks/etc for music videos
-    return (hours * 3600 + minutes * 60 + seconds) * 1000;
+  const regex =
+    /P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/;
+  const matches = isoDuration.match(regex);
+  const seconds = parseFloat(matches[7] || 0);
+  const minutes = parseInt(matches[6] || 0);
+  const hours = parseInt(matches[5] || 0);
+  // We can ignore days/weeks/etc for music videos
+  return (hours * 3600 + minutes * 60 + seconds) * 1000;
 }
 
 function handleHostUpdateDuration(socket, { roomId, trackIndex, durationMs }) {
@@ -306,13 +352,15 @@ function handleHostUpdateDuration(socket, { roomId, trackIndex, durationMs }) {
   // If we already have the correct duration, do nothing.
   if (track.duration_ms === durationMs) return;
 
-  console.log(`--> Server received correct duration for track ${trackIndex}: ${durationMs}ms`);
+  console.log(
+    `--> Server received correct duration for track ${trackIndex}: ${durationMs}ms`
+  );
   // 1. Update the duration in the server's authoritative playlist.
   track.duration_ms = durationMs;
-  
+
   // 2. Also update the currently playing object's duration.
   if (room.nowPlaying && room.nowPlaying.track.videoId === track.videoId) {
-      room.nowPlaying.track.duration_ms = durationMs;
+    room.nowPlaying.track.duration_ms = durationMs;
   }
 
   // 3. Reset the song end timer with the CORRECT duration.
@@ -320,7 +368,10 @@ function handleHostUpdateDuration(socket, { roomId, trackIndex, durationMs }) {
   const timeSincePlay = Date.now() - room.nowPlaying.startTime;
   const remainingDuration = durationMs - timeSincePlay;
   // A 500ms buffer is safer than 1500ms now that we have the correct duration.
-  room.songEndTimer = setTimeout(() => playNextSong(roomId), remainingDuration + 500);
+  room.songEndTimer = setTimeout(
+    () => playNextSong(roomId),
+    remainingDuration + 500
+  );
 
   // --> THIS IS THE FIX <--
   // 4. Forcefully re-sync ALL clients with a newSongPlaying event.
@@ -451,12 +502,10 @@ async function processUserLeave(socket, roomId) {
         system: true,
         text: "👑 You are now the host of this room!",
       });
-      newHostSocket.broadcast
-        .to(roomId)
-        .emit("newChatMessage", {
-          system: true,
-          text: `👑 ${newHost.user.displayName} is now the host.`,
-        });
+      newHostSocket.broadcast.to(roomId).emit("newChatMessage", {
+        system: true,
+        text: `👑 ${newHost.user.displayName} is now the host.`,
+      });
     }
   }
   const updatedUserList = generateUserList(room);
@@ -517,8 +566,11 @@ function playTrackAtIndex(roomId, index) {
     console.log(`Starting sync interval for room ${roomId}`);
     room.syncInterval = setInterval(() => {
       // Add a safety check in case the room is deleted while the interval is running
-      if (rooms[roomId]) { 
-        io.to(roomId).emit("syncPulse", getAuthoritativeNowPlaying(rooms[roomId]));
+      if (rooms[roomId]) {
+        io.to(roomId).emit(
+          "syncPulse",
+          getAuthoritativeNowPlaying(rooms[roomId])
+        );
       }
     }, SYNC_INTERVAL);
   }
@@ -570,7 +622,7 @@ const getSanitizedRoomState = (room, isHost, user) => {
   safeRoomState.isPlaying = room.isPlaying;
   safeRoomState.userList = userList;
   // --> ADD THIS LINE <--
-  safeRoomState.chatHistory = room.chatHistory || []; 
+  safeRoomState.chatHistory = room.chatHistory || [];
   return safeRoomState;
 };
 
@@ -579,10 +631,10 @@ function handleHostPlaybackChange(socket, data) {
   if (!room || socket.user.id !== room.hostUserId || !room.nowPlaying) return;
 
   if (room.songEndTimer) clearTimeout(room.songEndTimer);
-  
+
   const currentPosition = Date.now() - room.nowPlaying.startTime;
   room.nowPlaying.position = currentPosition;
-  
+
   // Update the playing state based on the host's action
   // If the host provides an isPlaying state (e.g., from seeking), use it. Otherwise, use the one from the button click.
   room.isPlaying = data.isPlaying;
@@ -591,11 +643,12 @@ function handleHostPlaybackChange(socket, data) {
   if (data.position !== undefined) {
     room.nowPlaying.position = data.position;
   }
-  
+
   room.nowPlaying.startTime = Date.now() - room.nowPlaying.position;
 
   if (room.isPlaying) {
-    const remainingDuration = room.nowPlaying.track.duration_ms - room.nowPlaying.position;
+    const remainingDuration =
+      room.nowPlaying.track.duration_ms - room.nowPlaying.position;
     room.songEndTimer = setTimeout(
       () => playNextSong(data.roomId),
       remainingDuration + 1500
@@ -684,14 +737,18 @@ function handleApproveSuggestion(socket, { roomId, suggestionId }) {
 
   // 1. Get the suggestion and remove it from the suggestions list.
   const [approvedSuggestion] = room.suggestions.splice(suggestionIndex, 1);
-  const { suggestionId: sid, suggester, ...trackForPlaylist } = approvedSuggestion;
+  const {
+    suggestionId: sid,
+    suggester,
+    ...trackForPlaylist
+  } = approvedSuggestion;
 
   // 2. Add the track to the main playlist.
   room.playlist.push(trackForPlaylist);
-  
+
   // 3. Tell everyone the suggestions list has changed.
   io.to(roomId).emit("suggestionsUpdated", room.suggestions);
-  
+
   // --- NEW, CORRECTED LOGIC ---
 
   // 4. Check if the player was idle. If so, start playing the new song.
@@ -717,7 +774,7 @@ function handleSendMessage(socket, msg) {
     userId: socket.user.id,
     avatar: socket.user.avatar,
   };
-  
+
   // Add message to room's history
   if (!room.chatHistory) room.chatHistory = [];
   room.chatHistory.push(message);
@@ -728,7 +785,9 @@ function handleSendMessage(socket, msg) {
   // Set a timer to remove this specific message after 1 hour (3600 * 1000 ms)
   setTimeout(() => {
     if (room && room.chatHistory) {
-      room.chatHistory = room.chatHistory.filter(m => m.messageId !== message.messageId);
+      room.chatHistory = room.chatHistory.filter(
+        (m) => m.messageId !== message.messageId
+      );
     }
   }, 3600 * 1000);
 }
