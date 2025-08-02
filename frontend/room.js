@@ -19,6 +19,13 @@ document.addEventListener("DOMContentLoaded", () => {
   let initialNowPlayingData = null;
   let lastSeekTimestamp = 0;
 
+  const loopBtn = document.getElementById("loop-btn");
+  let currentLoopMode = "none";
+
+  const loopIconNone = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>`;
+  const loopIconPlaylist = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>`;
+  const loopIconSong = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V2L8 6l4 4V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8zm-1 5v5h2V7h-4v3h2z"/></svg>`;
+
   window.onYouTubeIframeAPIReady = function () {
     player = new YT.Player("youtube-player", {
       height: "0",
@@ -76,8 +83,6 @@ document.addEventListener("DOMContentLoaded", () => {
     audioUnlockOverlay.style.display = "none";
 
     if (player && typeof player.playVideo === "function") {
-      // This is a sacred ritual to appease the Safari and mobile browser gods.
-      // Mercy, please.
       const currentVolume = player.getVolume();
       player.mute();
       player.playVideo();
@@ -92,7 +97,6 @@ document.addEventListener("DOMContentLoaded", () => {
           (initialNowPlayingData && initialNowPlayingData.isPlaying);
 
         if (shouldBePlaying) {
-          // Okay, ritual complete. Now PLES please plEeeeEEsaaeaseaseaseae. Gumana ka na pls.
           player.playVideo();
         }
       }, 150);
@@ -127,10 +131,11 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("room-name-display").textContent = data.name;
       document.getElementById("listener-count-display").textContent =
         data.listenerCount;
-      window.va && window.va('event', 'Join Room', { roomName: data.name });
+
+      window.va && window.va("event", "Join Room", { roomName: data.name });
 
       const addVibeWrapper = document.getElementById("add-vibe-wrapper");
-      
+
       addVibeWrapper.className = isHost ? "is-host" : "is-guest";
 
       const hostControlsWrapper = document.getElementById(
@@ -143,6 +148,7 @@ document.addEventListener("DOMContentLoaded", () => {
         nowPlayingIndex: -1,
       };
       updatePlaylistUI(currentPlaylistState);
+      updateLoopButtonUI(data.loopMode || "none");
 
       currentSuggestions = data.suggestions || [];
       updateSuggestionsUI(currentSuggestions);
@@ -211,7 +217,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       if (data.isPlaying) {
-        // Ang hirap ng math na to para lang sa music TAPOS DI GAGANA!?.
         const latency = Date.now() - data.serverTimestamp;
         const authoritativePosition = data.position + latency;
         const clientPosition = player.getCurrentTime() * 1000;
@@ -246,6 +251,9 @@ document.addEventListener("DOMContentLoaded", () => {
       updateSuggestionsUI(suggestions);
     });
 
+    socket.on("loopModeUpdated", ({ loopMode }) =>
+      updateLoopButtonUI(loopMode)
+    );
     socket.on("newChatMessage", (message) =>
       message.system
         ? renderSystemMessage(message.text)
@@ -281,6 +289,12 @@ document.addEventListener("DOMContentLoaded", () => {
         "click",
         () => isHost && socket.emit("playPrevTrack", { roomId: currentRoomId })
       );
+
+    loopBtn.addEventListener("click", () => {
+      if (isHost) {
+        socket.emit("toggleLoopMode", { roomId: currentRoomId });
+      }
+    });
 
     volumeSlider.addEventListener("input", (e) => {
       if (player && player.setVolume) player.setVolume(e.target.value);
@@ -342,7 +356,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Work, so I can eat.
   function syncPlayerState(nowPlaying) {
     clearInterval(nowPlayingInterval);
 
@@ -374,7 +387,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const isNewVideo = currentPlayerVideoId !== track.videoId;
 
     if (isNewVideo) {
-      // please just load
       player.loadVideoById({
         videoId: track.videoId,
         startSeconds: correctedPositionInSeconds,
@@ -459,6 +471,28 @@ document.addEventListener("DOMContentLoaded", () => {
     const nowPlayingCard = document.getElementById("now-playing-container");
     if (nowPlayingCard) {
       nowPlayingCard.classList.toggle("is-playing", isPlaying);
+    }
+  }
+
+  function updateLoopButtonUI(mode) {
+    currentLoopMode = mode;
+    loopBtn.classList.remove("active");
+
+    switch (mode) {
+      case "playlist":
+        loopBtn.innerHTML = loopIconPlaylist;
+        loopBtn.classList.add("active");
+        loopBtn.title = "Loop Playlist";
+        break;
+      case "song":
+        loopBtn.innerHTML = loopIconSong;
+        loopBtn.classList.add("active");
+        loopBtn.title = "Loop Song";
+        break;
+      default:
+        loopBtn.innerHTML = loopIconNone;
+        loopBtn.title = "Looping Off";
+        break;
     }
   }
 

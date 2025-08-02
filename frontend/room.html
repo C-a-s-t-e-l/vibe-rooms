@@ -137,6 +137,11 @@
 
               <div class="host-only-controls">
                 <div class="media-buttons-group">
+                  <button class="icon-btn" id="loop-btn" title="Looping Off">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+                    </svg>
+                  </button>
                   <button class="icon-btn" id="prev-btn">
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
@@ -173,7 +178,6 @@
             <div id="queue-list" class="scrollable-list"></div>
           </div>
           <div class="panel-section add-vibe-section">
-            <!-- This single wrapper will have the is-host or is-guest class added by JS -->
             <div id="add-vibe-wrapper">
               <div class="host-only-form">
                 <h4 class="section-title">Add by Link</h4>
@@ -278,7 +282,7 @@
 
     <script src="https://vibes-fqic.onrender.com/socket.io/socket.io.js"></script>
     <script src="/room.js"></script>
-     <script src="/_vercel/insights/script.js"></script>
+    <script src="/_vercel/insights/script.js"></script>
     <script>
       var tag = document.createElement("script");
       tag.src = "https://www.youtube.com/iframe_api";

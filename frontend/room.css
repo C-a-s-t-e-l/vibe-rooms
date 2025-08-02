@@ -705,6 +705,10 @@ body {
   display: none;
 }
 
+.icon-btn.active {
+  color: hsl(var(--primary));
+}
+
 @keyframes slideIn {
   to {
     opacity: 1;
