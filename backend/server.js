@@ -472,8 +472,8 @@ const getAuthoritativeNowPlaying = (room) => {
   if (!room || !room.nowPlaying) return null;
 
   // This is now always correct because the main handler sets the state perfectly.
-  const currentPosition = room.isPlaying 
-    ? Date.now() - room.nowPlaying.startTime 
+  const currentPosition = room.isPlaying
+    ? Date.now() - room.nowPlaying.startTime
     : room.nowPlaying.position;
 
   return {
@@ -524,17 +524,19 @@ function handleHostPlaybackChange(socket, data) {
 
   // Now, calculate the position based on the PREVIOUS state.
   const currentPosition = Date.now() - room.nowPlaying.startTime;
-  
+
   // If the host also sent a new position (from seeking), honor that.
   // Otherwise, use the position we just calculated.
-  room.nowPlaying.position = data.position !== undefined ? data.position : currentPosition;
-  
+  room.nowPlaying.position =
+    data.position !== undefined ? data.position : currentPosition;
+
   // Finally, reset the `startTime` reference based on the now-correct position.
   // This correctly "freezes" or "unfreezes" the time.
   room.nowPlaying.startTime = Date.now() - room.nowPlaying.position;
 
   if (room.isPlaying) {
-    const remainingDuration = room.nowPlaying.track.duration_ms - room.nowPlaying.position;
+    const remainingDuration =
+      room.nowPlaying.track.duration_ms - room.nowPlaying.position;
     room.songEndTimer = setTimeout(
       () => playNextSong(data.roomId),
       remainingDuration + 1500
