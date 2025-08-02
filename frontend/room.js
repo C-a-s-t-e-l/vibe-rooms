@@ -267,17 +267,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function setupUIEventListeners() {
     playPauseBtn.addEventListener("click", () => {
-      if (!isHost || !player || typeof player.getPlayerState !== "function")
-        return;
-      const playerState = player.getPlayerState();
-      const newIsPlayingState = playerState !== YT.PlayerState.PLAYING;
-      socket.emit("hostPlaybackChange", {
-        roomId: currentRoomId,
-        isPlaying: newIsPlayingState,
-      });
-      if (newIsPlayingState) player.playVideo();
-      else player.pauseVideo();
-    });
+  if (!isHost || !player || typeof player.getPlayerState !== "function") return;
+
+  const playerState = player.getPlayerState();
+  const newIsPlayingState = playerState !== YT.PlayerState.PLAYING;
+
+  // THE FIX: The host ONLY tells the server about the change.
+  // It no longer calls player.playVideo() or player.pauseVideo() directly.
+  // It will wait for the server's newSongPlaying event, just like a guest.
+  socket.emit("hostPlaybackChange", {
+    roomId: currentRoomId,
+    isPlaying: newIsPlayingState,
+  });
+});
 
     document
       .getElementById("next-btn")
@@ -296,22 +298,20 @@ document.addEventListener("DOMContentLoaded", () => {
       localStorage.setItem('vibe_volume', e.target.value);
     });
 
-    document
-      .getElementById("progress-bar-container")
-      .addEventListener("click", (e) => {
-        if (!isHost || !currentSongDuration || !player) return;
-        const bar = document.getElementById("progress-bar-container");
-        const seekRatio = e.offsetX / bar.clientWidth;
-        const seekTimeMs = currentSongDuration * seekRatio;
-        player.seekTo(seekTimeMs / 1000, true);
-        if (player.getPlayerState() !== YT.PlayerState.PLAYING)
-          player.playVideo();
-        socket.emit("hostPlaybackChange", {
-          roomId: currentRoomId,
-          position: seekTimeMs,
-        });
-        startProgressTimer(Date.now() - seekTimeMs, currentSongDuration);
-      });
+   document.getElementById("progress-bar-container").addEventListener("click", (e) => {
+    if (!isHost || !currentSongDuration) return;
+    const bar = document.getElementById("progress-bar-container");
+    const seekRatio = e.offsetX / bar.clientWidth;
+    const seekTimeMs = currentSongDuration * seekRatio;
+
+    // THE FIX: The host ONLY tells the server about the seek.
+    // It no longer calls player.seekTo() or player.playVideo() directly.
+    socket.emit("hostPlaybackChange", {
+        roomId: currentRoomId,
+        position: seekTimeMs,
+        isPlaying: true // Seeking should always resume playback
+    });
+});
 
     document.getElementById("chat-form").addEventListener("submit", (e) => {
       e.preventDefault();
@@ -360,30 +360,59 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function syncPlayerState(nowPlaying) {
-    clearInterval(nowPlayingInterval);
-    if (!nowPlaying || !nowPlaying.track) {
-      updateNowPlayingUI(null, false);
-      if (player && typeof player.stopVideo === "function") player.stopVideo();
-      return;
-    }
-    if (!player || typeof player.loadVideoById !== "function") {
-      console.warn(
-        "Player not ready. Storing initial state to sync upon readiness."
-      );
-      initialNowPlayingData = nowPlaying;
-      updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
-      return;
-    }
+  clearInterval(nowPlayingInterval);
+
+  if (!nowPlaying || !nowPlaying.track) {
+    updateNowPlayingUI(null, false);
+    if (player && typeof player.stopVideo === 'function') player.stopVideo();
+    return;
+  }
+  
+  if (!player || typeof player.loadVideoById !== 'function') {
+    initialNowPlayingData = nowPlaying;
     updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
-    const { track, isPlaying, position, serverTimestamp } = nowPlaying;
-    const latency = Date.now() - serverTimestamp;
-    const correctedPositionInSeconds = (position + latency) / 1000;
-    player.loadVideoById(track.videoId, correctedPositionInSeconds);
-    if (isPlaying) {
-      if (audioContextUnlocked) player.playVideo();
-      else audioUnlockOverlay.style.display = "grid";
+    return;
+  }
+
+  updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
+  const { track, isPlaying, position, serverTimestamp } = nowPlaying;
+  
+  const latency = Date.now() - serverTimestamp;
+  const correctedPositionInSeconds = (position + latency) / 1000;
+  
+  const currentVideoUrl = player.getVideoUrl();
+  const currentPlayerVideoId = currentVideoUrl ? (currentVideoUrl.match(/v=([^&]+)/) || [])[1] : null;
+
+  // --- Definitive Player Control Logic ---
+  // Only call loadVideoById if the video is actually different.
+  if (currentPlayerVideoId !== track.videoId) {
+    console.log(`Loading new track: ${track.videoId}`);
+    player.loadVideoById({
+        videoId: track.videoId,
+        startSeconds: correctedPositionInSeconds
+    });
+  } else {
+    // If it's the same video, we ONLY seek. This is much faster and more reliable.
+    const clientTime = player.getCurrentTime();
+    // Only seek if the difference is significant, to avoid visual stutter for the host.
+    if (Math.abs(clientTime - correctedPositionInSeconds) > 1.5) {
+        console.log(`Seeking same track to correct position.`);
+        player.seekTo(correctedPositionInSeconds, true);
     }
   }
+
+  // After loading or seeking, strictly enforce the server's isPlaying state.
+  if (isPlaying) {
+    if (audioContextUnlocked) {
+        player.playVideo();
+    } else {
+        audioUnlockOverlay.style.display = 'grid';
+    }
+  } else {
+    // This command will now reliably work because we aren't calling loadVideoById unnecessarily.
+    player.pauseVideo();
+  }
+}
 
   function startProgressTimer(startTime, duration_ms) {
     clearInterval(nowPlayingInterval);
