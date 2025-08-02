@@ -201,20 +201,29 @@ function handleHostUpdateDuration(socket, { roomId, trackIndex, durationMs }) {
     return;
   }
 
-  // Update the duration for the current track
   const track = room.playlist[trackIndex];
-  track.duration_ms = durationMs;
+  // If we already have the correct duration, do nothing.
+  if (track.duration_ms === durationMs) return;
 
-  // Reset the song end timer with the CORRECT duration
-  if (room.songEndTimer) clearTimeout(room.songEndTimer);
+  console.log(`--> Server received correct duration for track ${trackIndex}: ${durationMs}ms`);
+  // 1. Update the duration in the server's authoritative playlist.
+  track.duration_ms = durationMs;
   
+  // 2. Also update the currently playing object's duration.
+  if (room.nowPlaying && room.nowPlaying.track.videoId === track.videoId) {
+      room.nowPlaying.track.duration_ms = durationMs;
+  }
+
+  // 3. Reset the song end timer with the CORRECT duration.
+  if (room.songEndTimer) clearTimeout(room.songEndTimer);
   const timeSincePlay = Date.now() - room.nowPlaying.startTime;
   const remainingDuration = durationMs - timeSincePlay;
-
   room.songEndTimer = setTimeout(() => playNextSong(roomId), remainingDuration + 1500);
 
-  // Optional: Send the updated playlist to everyone so their UI shows the correct time
-  io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
+  // --> THIS IS THE FIX <--
+  // 4. Forcefully re-sync ALL clients with a new syncPulse containing the corrected data.
+  // This tells every guest's client about the correct duration.
+  io.to(roomId).emit("syncPulse", getAuthoritativeNowPlaying(room));
 }
 
 // --- DELETED: The handleSearchYouTube function has been completely removed. ---
