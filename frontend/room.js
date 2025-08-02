@@ -1,11 +1,14 @@
 // frontend/room.js
 
 document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("host-link-form").addEventListener("submit", handleLinkSubmit);
+document.getElementById("guest-link-form").addEventListener("submit", handleLinkSubmit);
   const BACKEND_URL = "https://vibes-fqic.onrender.com";
   const userToken = localStorage.getItem("vibe_token");
   const volumeSlider = document.getElementById('volume-slider');
   const savedVolume = localStorage.getItem('vibe_volume') || 80; 
   volumeSlider.value = savedVolume;
+  
 
   if (!userToken) {
     window.location.href = "/";
@@ -313,46 +316,18 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     const handleLinkSubmit = async (e) => {
-      e.preventDefault();
-      const inputEl = isHost
-        ? document.getElementById("host-link-input")
-        : document.getElementById("guest-link-input");
-      const url = inputEl.value.trim();
-      if (!url) return;
-      inputEl.value = "";
-      try {
-        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(
-          url
-        )}&format=json`;
-        const response = await fetch(oembedUrl);
-        if (!response.ok) {
-          throw new Error("Could not fetch video information.");
-        }
-        const data = await response.json();
-        const videoIdMatch = url.match(/(?:v=|\/)([0-9A-Za-z_-]{11}).*/);
-        if (!videoIdMatch || !videoIdMatch[1]) {
-          throw new Error("Could not parse Video ID from URL.");
-        }
-        const videoId = videoIdMatch[1];
-        const trackData = {
-          videoId: videoId,
-          name: data.title,
-          artist: data.author_name,
-          albumArt: data.thumbnail_url,
-          duration_ms: 0,
-          url: url,
-          source: "youtube",
-        };
-        socket.emit("addYouTubeTrack", {
-          roomId: currentRoomId,
-          trackData: trackData,
-        });
-        showToast(isHost ? "Added to playlist!" : "Suggestion sent!");
-      } catch (error) {
-        console.error("Failed to add track:", error);
-        showToast("Sorry, that link seems to be invalid.", "error");
-      }
-    };
+  e.preventDefault();
+  const inputEl = isHost ? document.getElementById("host-link-input") : document.getElementById("guest-link-input");
+  const url = inputEl.value.trim();
+  if (!url) return;
+  
+  // The frontend no longer needs to fetch oEmbed data.
+  // It just sends the raw URL to the server.
+  socket.on("addYouTubeTrack", (data) => handleAddYouTubeTrack(socket, data));
+  
+  inputEl.value = "";
+  showToast(isHost ? "Adding to playlist..." : "Suggestion sent!");
+};
     document
       .getElementById("host-link-form")
       .addEventListener("submit", handleLinkSubmit);
