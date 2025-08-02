@@ -578,16 +578,13 @@ function handleHostPlaybackChange(socket, data) {
   const room = rooms[data.roomId];
   if (!room || socket.user.id !== room.hostUserId || !room.nowPlaying) return;
 
-  // Always clear the auto-skip timer when the host interacts.
   if (room.songEndTimer) clearTimeout(room.songEndTimer);
-
-  // --- THIS IS THE CRITICAL FIX ---
-  // Before we change the isPlaying state, we MUST capture the current position.
-  // This calculates the song's progress right up to this millisecond.
+  
   const currentPosition = Date.now() - room.nowPlaying.startTime;
   room.nowPlaying.position = currentPosition;
-
-  // Now, update the playing state based on the host's action.
+  
+  // Update the playing state based on the host's action
+  // If the host provides an isPlaying state (e.g., from seeking), use it. Otherwise, use the one from the button click.
   room.isPlaying = data.isPlaying;
 
   // If the host also sent a new position (i.e., they seeked the bar), we honor that.
@@ -595,11 +592,8 @@ function handleHostPlaybackChange(socket, data) {
     room.nowPlaying.position = data.position;
   }
   
-  // Finally, we reset the `startTime` reference based on the now-correct position.
-  // This "freezes" the position correctly when paused.
   room.nowPlaying.startTime = Date.now() - room.nowPlaying.position;
 
-  // If we are resuming playback, set a new timer for when the song should end.
   if (room.isPlaying) {
     const remainingDuration = room.nowPlaying.track.duration_ms - room.nowPlaying.position;
     room.songEndTimer = setTimeout(
@@ -608,7 +602,6 @@ function handleHostPlaybackChange(socket, data) {
     );
   }
 
-  // Broadcast a "strong" update to all clients to force them into the correct state.
   io.to(data.roomId).emit("newSongPlaying", getAuthoritativeNowPlaying(room));
   broadcastLobbyData();
 }
