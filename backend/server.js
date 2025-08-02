@@ -573,12 +573,20 @@ function handleApproveSuggestion(socket, { roomId, suggestionId }) {
   // 3. Tell everyone the suggestions list has changed.
   io.to(roomId).emit("suggestionsUpdated", room.suggestions);
   
-  // --> THIS IS THE FIX <--
-  // 4. Immediately play the newly added track.
-  // The new track is always at the end of the playlist array.
-  const newTrackIndex = room.playlist.length - 1;
-  playTrackAtIndex(roomId, newTrackIndex);
+  // --- NEW, CORRECTED LOGIC ---
+
+  // 4. Check if the player was idle. If so, start playing the new song.
+  if (room.nowPlayingIndex === -1) {
+    // The room was empty, so let's start the vibe!
+    const newTrackIndex = room.playlist.length - 1;
+    playTrackAtIndex(roomId, newTrackIndex);
+  } else {
+    // 5. If a song was already playing, just update the playlist for everyone.
+    // This adds the song to the end of the queue visually for all clients.
+    io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
+  }
 }
+
 function handleRejectSuggestion(socket, { roomId, suggestionId }) {
   const room = rooms[roomId];
   if (!room || socket.user.id !== room.hostUserId) return;
