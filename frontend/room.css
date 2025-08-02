@@ -840,7 +840,7 @@ body {
     padding: 1rem;
   }
   .tab-content{
-    max-height: 400px;
+    max-height: 600px;
   }
   .panel-tabs {
     padding: 0.5rem;
@@ -852,3 +852,4 @@ body {
     display: none;
   }
 }
+
