@@ -3,6 +3,9 @@
 document.addEventListener("DOMContentLoaded", () => {
   const BACKEND_URL = "https://vibes-fqic.onrender.com";
   const userToken = localStorage.getItem("vibe_token");
+  const volumeSlider = document.getElementById('volume-slider');
+  const savedVolume = localStorage.getItem('vibe_volume') || 80; 
+  volumeSlider.value = savedVolume;
 
   if (!userToken) {
     window.location.href = "/";
@@ -121,35 +124,56 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     socket.on("roomState", (data) => {
-      if (!data) {
-        window.location.href = "/";
-        return;
+  // 1. Guard clause: If no room data is received, redirect to home.
+  if (!data) {
+    window.location.href = "/";
+    return;
+  }
+
+  // 2. Set up core room properties.
+  currentRoomId = data.id;
+  document.title = data.name;
+  isHost = data.isHost;
+  document.getElementById("room-name-display").textContent = data.name;
+  document.getElementById("listener-count-display").textContent = data.listenerCount;
+
+  // 3. Apply CSS classes based on user role (Host vs. Guest).
+  // This is used to show/hide UI elements like the host-only forms and controls.
+  const addVibeWrapper = document.getElementById("add-vibe-wrapper");
+  addVibeWrapper.classList.toggle("is-host", isHost);
+  addVibeWrapper.classList.toggle("is-guest", !isHost);
+  
+  // This is the logic for hiding the playback controls for guests.
+  const hostControlsWrapper = document.getElementById("host-controls-wrapper");
+  // By toggling the a parent class, all children with .host-only-controls will hide via CSS.
+  hostControlsWrapper.classList.toggle("is-guest", !isHost);
+
+
+  // 4. Update all the major UI components with the received state.
+  currentPlaylistState = data.playlistState || { playlist: [], nowPlayingIndex: -1 };
+  updatePlaylistUI(currentPlaylistState);
+
+  currentSuggestions = data.suggestions || [];
+  updateSuggestionsUI(currentSuggestions);
+
+  updateUserListUI(data.userList || []);
+
+  // 5. --> THIS IS THE NEW LOGIC FOR CHAT HISTORY <--
+  // When joining, clear the chat and render the history sent from the server.
+  const chatMessages = document.getElementById("chat-messages");
+  chatMessages.innerHTML = ''; // Clear the container first
+  if (data.chatHistory && data.chatHistory.length > 0) {
+    data.chatHistory.forEach(message => {
+      // We only render user messages from history to keep it clean.
+      if (!message.system) {
+        renderChatMessage(message);
       }
-      currentRoomId = data.id;
-      document.title = data.name;
-      isHost = data.isHost;
-      document
-        .getElementById("add-vibe-wrapper")
-        .classList.toggle("is-host", isHost);
-      document
-        .getElementById("add-vibe-wrapper")
-        .classList.toggle("is-guest", !isHost);
-      document
-        .getElementById("host-controls-wrapper")
-        .classList.toggle("is-guest", !isHost);
-      document.getElementById("room-name-display").textContent = data.name;
-      currentPlaylistState = data.playlistState || {
-        playlist: [],
-        nowPlayingIndex: -1,
-      };
-      updatePlaylistUI(currentPlaylistState);
-      currentSuggestions = data.suggestions || [];
-      updateSuggestionsUI(currentSuggestions);
-      updateUserListUI(data.userList || []);
-      document.getElementById("listener-count-display").textContent =
-        data.listenerCount;
-      syncPlayerState(data.nowPlaying);
     });
+  }
+
+  // 6. Finally, synchronize the YouTube player state.
+  syncPlayerState(data.nowPlaying);
+});
 
     socket.on("newSongPlaying", (nowPlayingData) => {
       if (nowPlayingData && nowPlayingData.nowPlayingIndex !== undefined) {
@@ -259,6 +283,7 @@ document.addEventListener("DOMContentLoaded", () => {
       );
     document.getElementById("volume-slider").addEventListener("input", (e) => {
       if (player && player.setVolume) player.setVolume(e.target.value);
+      localStorage.setItem('vibe_volume', e.target.value);
     });
 
     document

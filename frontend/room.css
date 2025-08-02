@@ -656,6 +656,11 @@ body {
 .queue-section .system-message {
   margin: auto; 
 }
+
+.is-guest .host-only-controls {
+  display: none;
+}
+
 @keyframes slideIn {
   to {
     opacity: 1;
