@@ -71,18 +71,22 @@ document.addEventListener("DOMContentLoaded", () => {
   const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
 
   function unlockAudio() {
-    if (audioContextUnlocked) return;
-    audioContextUnlocked = true;
-    audioUnlockOverlay.style.display = "none";
-    if (
-      player &&
-      player.getPlayerState() === YT.PlayerState.UNSTARTED &&
-      initialNowPlayingData &&
-      initialNowPlayingData.isPlaying
-    ) {
-      player.playVideo();
-    }
+  if (audioContextUnlocked) return;
+  audioContextUnlocked = true;
+  audioUnlockOverlay.style.display = "none";
+
+  // --- THIS IS THE DEFINITIVE FIX FOR THE HOST RELOAD BUG ---
+  // After unlocking, check if a song SHOULD be playing according to the last known state.
+  // We check both the main state and the initial data for the first-load case.
+  const shouldBePlaying = (currentPlaylistState && currentPlaylistState.isPlaying) || 
+                          (initialNowPlayingData && initialNowPlayingData.isPlaying);
+
+  // If it should be playing, command the player to play now that it's allowed.
+  if (player && shouldBePlaying) {
+    console.log("Audio unlocked and song should be playing. Issuing play command.");
+    player.playVideo();
   }
+}
 
   audioUnlockOverlay.addEventListener("click", unlockAudio);
   setupSocketListeners();
