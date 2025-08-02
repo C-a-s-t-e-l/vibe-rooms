@@ -471,18 +471,27 @@ function playTrackAtIndex(roomId, index) {
 const getAuthoritativeNowPlaying = (room) => {
   if (!room || !room.nowPlaying) return null;
 
-  // We no longer rely on a separate `position` property that can become stale.
-  // The SINGLE SOURCE OF TRUTH is the `startTime` reference and the current time.
-  const currentPosition = Date.now() - room.nowPlaying.startTime;
+  // --- THIS IS THE DEFINITIVE FIX FOR THE "FAKE PAUSE" ---
+  let currentPosition;
+
+  if (room.isPlaying) {
+    // If the song is playing, the position is a calculation of time passed.
+    currentPosition = Date.now() - room.nowPlaying.startTime;
+  } else {
+    // If the song is paused, the position is the STATIC value that was
+    // saved the moment the host clicked pause. It does not advance.
+    currentPosition = room.nowPlaying.position;
+  }
 
   const authoritativeState = {
     track: room.nowPlaying.track,
-    startTime: room.nowPlaying.startTime, // Pass the true reference time
-    position: currentPosition, // Pass the freshly calculated position
+    startTime: room.nowPlaying.startTime,
+    position: currentPosition, // Send the correctly calculated or stored position
     isPlaying: room.isPlaying,
     serverTimestamp: Date.now(),
     nowPlayingIndex: room.nowPlayingIndex,
   };
+
   return authoritativeState;
 };
 
