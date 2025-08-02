@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --> CHANGE: Global player variable for the YouTube Iframe Player
   let player;
+  let initialNowPlayingData = null;
 
   // --> NEW: These global functions are REQUIRED by the YouTube API
   // They must be in the global scope, so we define them here.
@@ -30,13 +31,23 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   function onPlayerReady(event) {
-    console.log("Player is ready to be controlled.");
-    // Set initial volume
-    const volumeSlider = document.getElementById("volume-slider");
-    if (player && player.setVolume) {
+  console.log("Player is ready to be controlled.");
+  // Set initial volume
+  const volumeSlider = document.getElementById("volume-slider");
+  if (player && player.setVolume) {
       player.setVolume(volumeSlider.value);
-    }
   }
+
+  // --> THIS IS THE SECOND HALF OF THE FIX <--
+  // Check our "memory". If we have a song that was supposed to be playing...
+  if (initialNowPlayingData) {
+    console.log("Syncing to stored initial state now that player is ready.");
+    // ...sync it now! This will load and play the video correctly.
+    syncPlayerState(initialNowPlayingData);
+    // And clear the memory so we don't accidentally do this again.
+    initialNowPlayingData = null;
+  }
+}
 
   function onPlayerStateChange(event) {
   // When a song ends, the host tells the server to skip to the next one.
@@ -165,33 +176,37 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // --> CHANGE: The syncPulse logic is simplified. We trust the host's player state more.
     socket.on("syncPulse", (data) => {
-      if (
-        isHost ||
-        !data ||
-        !data.track ||
-        !player ||
-        typeof player.getPlayerState !== "function"
-      )
-        return;
+  // We don't sync for the host, as they are the source of truth.
+  if (isHost || !data || !data.track || !player || typeof player.getPlayerState !== 'function') return;
 
-      const latency = Date.now() - data.serverTimestamp;
-      const correctedPosition = data.position + latency;
-      const clientPosition = player.getCurrentTime() * 1000;
-      const drift = Math.abs(correctedPosition - clientPosition);
+  // 1. Calculate the estimated server-to-client latency.
+  const latency = Date.now() - data.serverTimestamp;
+  
+  // 2. Predict where the host's song *should* be right now, accounting for latency.
+  const authoritativePosition = data.position + latency;
+  
+  // 3. Get the guest's current player position.
+  const clientPosition = player.getCurrentTime() * 1000;
 
-      // Only seek if the drift is significant (e.g., more than a second)
-      if (drift > 1000) {
-        player.seekTo(correctedPosition / 1000, true);
-      }
+  // 4. Calculate the difference (the "drift").
+  const drift = authoritativePosition - clientPosition;
 
-      // Sync play/pause state
-      const playerState = player.getPlayerState();
-      if (data.isPlaying && playerState !== YT.PlayerState.PLAYING) {
-        player.playVideo();
-      } else if (!data.isPlaying && playerState === YT.PlayerState.PLAYING) {
-        player.pauseVideo();
-      }
-    });
+  // --> THE FIX: We lower the tolerance for seeking.
+  // If we are off by more than 250ms (a quarter second), we force a seek to the correct position.
+  // This makes seeking feel much more responsive.
+  if (Math.abs(drift) > 250) {
+    console.log(`Syncing guest player. Drift: ${Math.round(drift)}ms. Seeking to corrected position.`);
+    player.seekTo(authoritativePosition / 1000, true);
+  }
+
+  // 5. Always ensure the play/pause state is correct.
+  const playerState = player.getPlayerState();
+  if (data.isPlaying && playerState !== YT.PlayerState.PLAYING) {
+    player.playVideo();
+  } else if (!data.isPlaying && (playerState === YT.PlayerState.PLAYING || playerState === YT.PlayerState.BUFFERING)) {
+    player.pauseVideo();
+  }
+});
 
     socket.on("hostAssigned", () => {
       isHost = true;
@@ -362,40 +377,42 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --> CHANGE: This function now controls the Iframe player
   function syncPlayerState(nowPlaying) {
-    clearInterval(nowPlayingInterval);
-    if (!nowPlaying || !nowPlaying.track) {
-      updateNowPlayingUI(null, false);
-      if (player && player.stopVideo) player.stopVideo();
-      return;
-    }
-
-    // Ensure the player is ready before trying to control it.
-    if (!player || typeof player.loadVideoById !== "function") {
-      console.warn("Player not ready, will try again shortly.");
-      // If the player isn't ready, we wait. The onPlayerReady event will handle playing.
-      return;
-    }
-
+  clearInterval(nowPlayingInterval);
+  if (!nowPlaying || !nowPlaying.track) {
+    updateNowPlayingUI(null, false);
+    if (player && typeof player.stopVideo === 'function') player.stopVideo();
+    return;
+  }
+  
+  // --> THIS IS THE CORE FIX <--
+  // If the player isn't ready yet...
+  if (!player || typeof player.loadVideoById !== 'function') {
+    console.warn("Player not ready. Storing initial state to sync upon readiness.");
+    // ...store the song data in our "memory"...
+    initialNowPlayingData = nowPlaying;
+    // ...and IMPORTANTLY, update the visual UI so the user sees the correct song info immediately.
     updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
+    // ...then stop, because we can't control the player yet.
+    return;
+  }
+  
+  // If the player IS ready, the function proceeds as normal.
+  updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
 
-    const { track, isPlaying, position, serverTimestamp } = nowPlaying;
-    const latency = Date.now() - serverTimestamp;
-    const correctedPosition = (position + latency) / 1000;
+  const { track, isPlaying, position, serverTimestamp } = nowPlaying;
+  const latency = Date.now() - serverTimestamp;
+  const correctedPosition = (position + latency) / 1000;
 
-    // Load the new video
-    player.loadVideoById(track.videoId, correctedPosition);
-
-    // If the state is 'playing', play the video.
-    if (isPlaying) {
-      if (audioContextUnlocked) {
-        player.playVideo();
-      } else {
-        // If audio is locked, we can't play yet. Show the unlock overlay.
-        // The sync logic will handle playing once unlocked.
-        audioUnlockOverlay.style.display = "grid";
-      }
+  player.loadVideoById(track.videoId, correctedPosition);
+  
+  if (isPlaying) {
+    if(audioContextUnlocked) {
+       player.playVideo();
+    } else {
+        audioUnlockOverlay.style.display = 'grid';
     }
   }
+}
 
   // All other UI update functions (`updatePlaylistUI`, `updateNowPlayingUI`, etc.) remain largely the same
   // as they just render data, which hasn't changed structure.
