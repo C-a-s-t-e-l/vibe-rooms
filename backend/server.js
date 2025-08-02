@@ -84,6 +84,33 @@ app.get(
     res.redirect(`${FRONTEND_URL}?token=${token}`);
   }
 );
+
+const verifyToken = (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+
+  if (token == null) {
+    // No token was provided
+    return res.sendStatus(401); // Unauthorized
+  }
+
+  jwt.verify(token, process.env.SESSION_SECRET, (err, user) => {
+    if (err) {
+      // The token is invalid or expired
+      return res.sendStatus(403); // Forbidden
+    }
+    // The token is valid, attach the user info to the request object
+    req.user = user;
+    next(); // Proceed to the next function (the main route handler)
+  });
+};
+
+app.get("/api/user", verifyToken, (req, res) => {
+  // If we reach this point, it means verifyToken successfully authenticated the user.
+  // We can now safely send back the user's information.
+  res.json(req.user);
+});
+
 io.engine.use(sessionMiddleware);
 io.engine.use(passport.initialize());
 io.engine.use(passport.session());
