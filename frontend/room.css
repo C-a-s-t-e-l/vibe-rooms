@@ -459,10 +459,14 @@ body {
   filter: brightness(1.2);
 }
 
-/* ================== SOCIAL PANEL ================== */
+/* ================== SOCIAL PANEL (IMPROVED & COMPACT) ================== */
 .social-panel {
   padding: 0;
+  /* Add flexbox to solve the mobile chat overflow issue */
+  display: flex;
+  flex-direction: column;
 }
+
 .panel-tabs {
   display: flex;
   gap: 0.5rem;
@@ -470,6 +474,7 @@ body {
   border-bottom: 1px solid hsl(var(--border));
   flex-shrink: 0;
 }
+
 .tab-btn {
   display: inline-flex;
   flex-shrink: 0;
@@ -484,29 +489,36 @@ body {
   cursor: pointer;
   transition: all 0.2s;
 }
+
 .tab-btn.active,
 .tab-btn:hover {
   background: hsl(var(--muted));
   color: hsl(var(--foreground));
 }
+
 #user-count-display,
 #suggestions-count-display {
   color: hsl(var(--muted-foreground));
   margin-left: 0.25rem;
   font-size: 0.8em;
 }
+
 .tab-btn.active #user-count-display,
 .tab-btn.active #suggestions-count-display {
   color: inherit;
 }
+
 .tab-content {
   display: none;
   flex-direction: column;
+  /* Reduced padding and gap for a tighter feel */
+  padding: 1rem; /* CHANGED from 1.5rem */
+  gap: 1rem;     /* CHANGED from 1.5rem */
+  /* Flexbox rules to ensure proper scrolling */
   flex-grow: 1;
   min-height: 0;
-  padding: 1.5rem;
-  gap: 1.5rem;
 }
+
 .tab-content.active {
   display: flex;
 }
@@ -515,47 +527,63 @@ body {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  /* This is the biggest change: reduced the space between messages */
+  gap: 0.75rem; /* CHANGED from 1.5rem */
+  overflow-y: auto; /* Ensure scrolling is enabled */
 }
+
 .chat-message {
   display: flex;
-  gap: 1rem;
+  /* Reduced space between avatar and text */
+  gap: 0.75rem; /* CHANGED from 1rem */
 }
+
 .chat-message__avatar {
-  width: 40px;
-  height: 40px;
+  /* Made the avatar slightly smaller */
+  width: 36px;   /* CHANGED from 40px */
+  height: 36px;  /* CHANGED from 40px */
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
 }
+
 .chat-message__header {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.25rem;
 }
+
 .chat-message__username {
   font-weight: 700;
 }
+
 .chat-message__timestamp {
   font-size: 0.8rem;
   color: hsl(var(--muted-foreground));
 }
+
 .chat-message__text {
-  line-height: 1.5;
+  /* Reduced line-height to make multi-line messages more compact */
+  line-height: 1.4; /* CHANGED from 1.5 */
   word-break: break-word;
 }
+
 .system-message {
   width: 100%;
   text-align: center;
   color: hsl(var(--muted-foreground));
   font-style: italic;
+  /* Added a bit of spacing for system messages to stand out */
+  padding: 0.25rem 0;
 }
+
 .chat-form {
   display: flex;
   gap: 1rem;
   flex-shrink: 0;
 }
+
 #chat-input {
   flex-grow: 1;
   background: hsl(var(--muted));
@@ -565,6 +593,7 @@ body {
   color: hsl(var(--foreground));
   font-size: 1rem;
 }
+
 #send-btn {
   background: hsl(var(--accent));
   color: white;
@@ -581,25 +610,30 @@ body {
   flex-direction: column;
   gap: 1rem;
 }
+
 .user-list-item {
   display: flex;
   align-items: center;
   gap: 1rem;
 }
+
 .user-list-item img {
   width: 40px;
   height: 40px;
   border-radius: 50%;
   object-fit: cover;
 }
+
 .user-list-item span {
   font-weight: 600;
 }
+
 .host-icon {
   font-size: 1.2rem;
   margin-left: auto;
   color: #ffd700;
 }
+
 .suggestion-item {
   display: grid;
   grid-template-columns: 40px 1fr auto;
@@ -608,18 +642,22 @@ body {
   padding: 0.5rem;
   border-radius: var(--radius-sm);
 }
+
 .suggestion-item:hover {
   background-color: hsl(var(--muted));
 }
+
 .suggestion-item__suggester {
   font-size: 0.8rem;
   color: hsl(var(--muted-foreground));
   margin-top: 0.25rem;
 }
+
 .suggestion-controls {
   display: flex;
   gap: 0.5rem;
 }
+
 .suggestion-controls button {
   background: none;
   border: none;
@@ -627,17 +665,21 @@ body {
   padding: 0.25rem;
   border-radius: 50%;
 }
+
 .suggestion-controls button:hover {
   background-color: hsl(var(--muted));
 }
+
 .suggestion-controls button svg {
   width: 20px;
   height: 20px;
   display: block;
 }
+
 .suggestion-approve svg {
   color: hsl(140, 70%, 60%);
 }
+
 .suggestion-reject svg {
   color: hsl(0, 70%, 60%);
 }

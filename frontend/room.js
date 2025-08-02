@@ -71,25 +71,43 @@ document.addEventListener("DOMContentLoaded", () => {
   const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
 
   function unlockAudio() {
-    if (audioContextUnlocked) return;
-    audioContextUnlocked = true;
-    audioUnlockOverlay.style.display = "none";
+  if (audioContextUnlocked) return;
+  audioContextUnlocked = true;
+  audioUnlockOverlay.style.display = "none";
 
-    // --- THIS IS THE DEFINITIVE FIX FOR THE HOST RELOAD BUG ---
-    // After unlocking, check if a song SHOULD be playing according to the last known state.
-    // We check both the main state and the initial data for the first-load case.
-    const shouldBePlaying =
-      (currentPlaylistState && currentPlaylistState.isPlaying) ||
-      (initialNowPlayingData && initialNowPlayingData.isPlaying);
+  if (player && typeof player.playVideo === 'function') {
+    // --- START OF CROSS-BROWSER COMPATIBILITY FIX ---
+    
+    // 1. Prime the player to satisfy browser autoplay policies (especially Safari).
+    // We mute, play for a tiny moment, then pause.
+    const currentVolume = player.getVolume();
+    player.mute();
+    player.playVideo();
 
-    // If it should be playing, command the player to play now that it's allowed.
-    if (player && shouldBePlaying) {
-      console.log(
-        "Audio unlocked and song should be playing. Issuing play command."
-      );
-      player.playVideo();
-    }
+    // After a very short delay, pause it and restore the volume.
+    // This action is "blessed" by the user's click and unlocks programmatic playback.
+    setTimeout(() => {
+        player.pauseVideo();
+        player.setVolume(currentVolume);
+        player.unMute();
+
+        // 2. Now, run the original logic to sync to the actual song state.
+        const shouldBePlaying =
+            (currentPlaylistState && currentPlaylistState.isPlaying) ||
+            (initialNowPlayingData && initialNowPlayingData.isPlaying);
+
+        if (shouldBePlaying) {
+            console.log(
+                "Audio unlocked and song should be playing. Issuing play command."
+            );
+            // This second playVideo call now has a much higher chance of working.
+            player.playVideo();
+        }
+
+    }, 150); // 150ms is enough to register the play but is imperceptible to the user.
+    // --- END OF CROSS-BROWSER COMPATIBILITY FIX ---
   }
+}
 
   audioUnlockOverlay.addEventListener("click", unlockAudio);
   setupSocketListeners();
@@ -335,66 +353,73 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // THIS IS THE MOST IMPORTANT CLIENT-SIDE FIX
-  function syncPlayerState(nowPlaying) {
-    clearInterval(nowPlayingInterval);
+function syncPlayerState(nowPlaying) {
+  clearInterval(nowPlayingInterval);
 
-    if (!nowPlaying || !nowPlaying.track) {
-      updateNowPlayingUI(null, false);
-      if (player && typeof player.stopVideo === "function") player.stopVideo();
-      return;
-    }
+  if (!nowPlaying || !nowPlaying.track) {
+    updateNowPlayingUI(null, false);
+    if (player && typeof player.stopVideo === "function") player.stopVideo();
+    return;
+  }
 
-    if (!player || typeof player.loadVideoById !== "function") {
-      initialNowPlayingData = nowPlaying;
-      updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
-      return;
-    }
-
+  if (!player || typeof player.loadVideoById !== "function") {
+    initialNowPlayingData = nowPlaying;
     updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
+    return;
+  }
 
-    const { track, isPlaying, position, serverTimestamp, startTime } =
-      nowPlaying;
+  updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
 
-    const latency = Date.now() - serverTimestamp;
-    const correctedPositionInSeconds = (position + latency) / 1000;
+  const { track, isPlaying, position, serverTimestamp, startTime } = nowPlaying;
 
-    const currentVideoUrl = player.getVideoUrl();
-    const currentPlayerVideoId = currentVideoUrl
-      ? (currentVideoUrl.match(/v=([^&]+)/) || [])[1]
-      : null;
+  const latency = Date.now() - serverTimestamp;
+  const correctedPositionInSeconds = (position + latency) / 1000;
 
-    if (currentPlayerVideoId !== track.videoId) {
-      player.loadVideoById({
-        videoId: track.videoId,
-        startSeconds: correctedPositionInSeconds,
-      });
-    } else {
-      const clientTime = player.getCurrentTime();
-      if (Math.abs(clientTime - correctedPositionInSeconds) > 1.5) {
-        player.seekTo(correctedPositionInSeconds, true);
-      }
-    }
+  const currentVideoUrl = player.getVideoUrl();
+  const currentPlayerVideoId = currentVideoUrl
+    ? (currentVideoUrl.match(/v=([^&]+)/) || [])[1]
+    : null;
 
-    if (isPlaying) {
-      startProgressTimer(startTime, track.duration_ms);
-      // --- DEFINITIVE FIX FOR HOST RELOAD ---
-      // Only try to play if the audio context is unlocked.
-      // If it's not, show the overlay. The `unlockAudio` function will handle playback.
-      if (audioContextUnlocked) {
-        player.playVideo();
-      } else {
-        audioUnlockOverlay.style.display = "grid";
-      }
-    } else {
-      const progressPercent = (position / track.duration_ms) * 100;
-      document.getElementById(
-        "progress-bar"
-      ).style.width = `${progressPercent}%`;
-      document.getElementById("current-time").textContent =
-        formatTime(position);
-      player.pauseVideo();
+  // --- START OF THE FIX for smooth transitions ---
+  const isNewVideo = currentPlayerVideoId !== track.videoId;
+
+  if (isNewVideo) {
+    // When it's a new video, just load it. Don't try to play it yet.
+    // The syncPulse will handle the play command smoothly in a moment.
+    player.loadVideoById({
+      videoId: track.videoId,
+      startSeconds: correctedPositionInSeconds,
+    });
+  } else {
+    // If it's the same video, we can safely sync it.
+    const clientTime = player.getCurrentTime();
+    if (Math.abs(clientTime - correctedPositionInSeconds) > 1.5) {
+      player.seekTo(correctedPositionInSeconds, true);
     }
   }
+
+  if (isPlaying) {
+    startProgressTimer(startTime, track.duration_ms);
+    // Only issue an immediate play command if it's NOT a new video.
+    // This prevents the initial stutter.
+    if (!isNewVideo) {
+        if (audioContextUnlocked) {
+            player.playVideo();
+        } else {
+            audioUnlockOverlay.style.display = "grid";
+        }
+    }
+  } else {
+    // If paused, ensure the client is paused.
+    const progressPercent = (position / track.duration_ms) * 100;
+    document.getElementById(
+      "progress-bar"
+    ).style.width = `${progressPercent}%`;
+    document.getElementById("current-time").textContent = formatTime(position);
+    player.pauseVideo();
+  }
+  // --- END OF THE FIX ---
+}
 
   function startProgressTimer(startTime, duration_ms) {
     clearInterval(nowPlayingInterval);
