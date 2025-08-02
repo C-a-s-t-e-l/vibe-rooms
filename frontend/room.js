@@ -489,7 +489,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
- function updatePlaylistUI({ playlist, nowPlayingIndex }) {
+function updatePlaylistUI({ playlist, nowPlayingIndex }) {
   const queueList = document.getElementById("queue-list");
   queueList.innerHTML = "";
   if (!playlist || playlist.length === 0) {
@@ -502,24 +502,15 @@ document.addEventListener("DOMContentLoaded", () => {
     queueItemDiv.className = "queue-item";
     queueItemDiv.dataset.index = index;
 
-    const playIndicator = index === nowPlayingIndex ? '▶' : (index < nowPlayingIndex ? '✓' : index + 1);
-    
-    // Build host controls HTML string only if needed
-    const hostControls = isHost ? `
-      <div class="playlist-item-controls">
-        <button class="delete-track-btn" title="Remove from playlist">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
-          </svg>
-        </button>
-      </div>
-    ` : `<span class="queue-item__duration">${formatTime(item.duration_ms)}</span>`;
-
     if (index === nowPlayingIndex) queueItemDiv.classList.add("is-playing");
     if (index < nowPlayingIndex) queueItemDiv.classList.add("is-played");
     if (isHost) queueItemDiv.classList.add("is-host-clickable");
+
+    const playIndicator = index === nowPlayingIndex ? '▶' : (index < nowPlayingIndex ? '✓' : index + 1);
     
-    // Set the full innerHTML in one go
+    // --- THIS IS THE CRITICAL FIX ---
+    // Always build the HTML with the duration span for everyone.
+    // Also include a placeholder div for the host's controls.
     queueItemDiv.innerHTML = `
       <span class="queue-item__number">${playIndicator}</span>
       <img src="${item.albumArt || "/placeholder.svg"}" alt="${item.name}" class="queue-item__art">
@@ -527,18 +518,28 @@ document.addEventListener("DOMContentLoaded", () => {
         <p>${item.name}</p>
         <p>${item.artist || ""}</p>
       </div>
-      ${hostControls}`;
+      <span class="queue-item__duration">${formatTime(item.duration_ms)}</span>
+      <div class="playlist-item-controls"></div>`;
+
+    // If the user is the host, find the placeholder and inject the delete button.
+    if (isHost) {
+      const controlsContainer = queueItemDiv.querySelector('.playlist-item-controls');
+      controlsContainer.innerHTML = `
+        <button class="delete-track-btn" title="Remove from playlist">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
+          </svg>
+        </button>`;
+    }
 
     queueList.appendChild(queueItemDiv);
   });
 
-  // Attach event listeners after all items are in the DOM
+  // Event listener attachment logic remains the same and is correct.
   if (isHost) {
     queueList.querySelectorAll(".is-host-clickable").forEach((item) => {
       item.addEventListener("click", (e) => {
-        // Prevent click on delete button from triggering play
         if (e.target.closest('.delete-track-btn')) return;
-        
         const clickedIndex = parseInt(e.currentTarget.dataset.index, 10);
         if (clickedIndex !== nowPlayingIndex) {
           socket.emit("playTrackAtIndex", { roomId: currentRoomId, index: clickedIndex });
