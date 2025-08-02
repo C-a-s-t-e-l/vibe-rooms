@@ -1,8 +1,7 @@
 // frontend/room.js
 
 document.addEventListener("DOMContentLoaded", () => {
-  document.getElementById("host-link-form").addEventListener("submit", handleLinkSubmit);
-document.getElementById("guest-link-form").addEventListener("submit", handleLinkSubmit);
+  
   const BACKEND_URL = "https://vibes-fqic.onrender.com";
   const userToken = localStorage.getItem("vibe_token");
   const volumeSlider = document.getElementById('volume-slider');
@@ -315,16 +314,17 @@ document.getElementById("guest-link-form").addEventListener("submit", handleLink
       }
     });
 
-    const handleLinkSubmit = async (e) => {
+    const handleLinkSubmit = (e) => { // No need for async here anymore
   e.preventDefault();
-  const inputEl = isHost ? document.getElementById("host-link-input") : document.getElementById("guest-link-input");
+  const inputEl = isHost
+    ? document.getElementById("host-link-input")
+    : document.getElementById("guest-link-input");
   const url = inputEl.value.trim();
   if (!url) return;
-  
-  // The frontend no longer needs to fetch oEmbed data.
-  // It just sends the raw URL to the server.
-  socket.on("addYouTubeTrack", (data) => handleAddYouTubeTrack(socket, data));
-  
+
+  // THIS IS THE CORRECT LINE. It *sends* the event to the server.
+  socket.emit("addYouTubeTrack", { roomId: currentRoomId, url: url });
+
   inputEl.value = "";
   showToast(isHost ? "Adding to playlist..." : "Suggestion sent!");
 };
