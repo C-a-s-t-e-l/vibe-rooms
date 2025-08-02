@@ -24,10 +24,10 @@ const FRONTEND_URL =
   process.env.FRONTEND_URL || "https://vibe-rooms-five.vercel.app";
 const corsOptions = { origin: FRONTEND_URL, credentials: true };
 app.use(cors(corsOptions));
-const io = new Server(server, { 
-  cors: { origin: FRONTEND_URL, methods: ["GET", "POST"], credentials: true }, 
-  pingInterval: 25000, 
-  pingTimeout: 60000, 
+const io = new Server(server, {
+  cors: { origin: FRONTEND_URL, methods: ["GET", "POST"], credentials: true },
+  pingInterval: 25000,
+  pingTimeout: 60000,
 });
 const PORT = process.env.PORT || 3000;
 const SYNC_INTERVAL = 500;
@@ -77,7 +77,6 @@ passport.deserializeUser((user, done) => done(null, user));
 app.get(
   "/auth/google",
   (req, res, next) => {
-   
     if (req.query.redirect) {
       req.session.redirectUrl = req.query.redirect;
     }
@@ -126,9 +125,11 @@ const verifyToken = (req, res, next) => {
 };
 
 app.get("/api/user", verifyToken, (req, res) => res.json(req.user));
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', message: 'Vibes server is healthy' });
+
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok", message: "Vibes server is healthy" });
 });
+
 io.engine.use(sessionMiddleware);
 io.engine.use(passport.initialize());
 io.engine.use(passport.session());
@@ -190,6 +191,21 @@ io.on("connection", (socket) => {
     if (requesterSocket) {
       requesterSocket.emit("receivePerfectSync", { hostPlayerTime });
     }
+  });
+  socket.on("toggleLoopMode", ({ roomId }) => {
+    const room = rooms[roomId];
+    if (!room || socket.user.id !== room.hostUserId) return;
+
+    const modes = ["none", "playlist", "song"];
+    const currentModeIndex = modes.indexOf(room.loopMode || "none");
+    const nextModeIndex = (currentModeIndex + 1) % modes.length;
+    room.loopMode = modes[nextModeIndex];
+
+    io.to(roomId).emit("loopModeUpdated", { loopMode: room.loopMode });
+    showToastToSocket(
+      io.sockets.sockets.get(socket.id),
+      `Loop mode set to: ${room.loopMode}`
+    );
   });
 });
 
@@ -326,7 +342,7 @@ function handleHostUpdateDuration(socket, { roomId, trackIndex, durationMs }) {
   const timeSincePlay = Date.now() - room.nowPlaying.startTime;
   const remainingDuration = durationMs - timeSincePlay;
   room.songEndTimer = setTimeout(
-    () => playNextSong(roomId),
+    () => handleSongEnd(roomId),
     remainingDuration + 500
   );
   io.to(roomId).emit("newSongPlaying", getAuthoritativeNowPlaying(room));
@@ -372,6 +388,7 @@ async function handleJoinRoom(socket, slug) {
       songEndTimer: null,
       deletionTimer: null,
       isPlaying: false,
+      loopMode: "none",
     };
     room = rooms[roomId];
   }
@@ -496,7 +513,7 @@ function playTrackAtIndex(roomId, index) {
     }, SYNC_INTERVAL);
   }
   room.songEndTimer = setTimeout(
-    () => playNextSong(roomId),
+    () => handleSongEnd(roomId),
     track.duration_ms + 1500
   );
   io.to(roomId).emit("newSongPlaying", getAuthoritativeNowPlaying(room));
@@ -504,7 +521,6 @@ function playTrackAtIndex(roomId, index) {
   io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
 }
 
-// Lord, patawad, pero ito na yung source of truth.
 const getAuthoritativeNowPlaying = (room) => {
   if (!room || !room.nowPlaying) return null;
 
@@ -544,10 +560,10 @@ const getSanitizedRoomState = (room, isHost, user) => {
   safeRoomState.suggestions = room.suggestions;
   safeRoomState.userList = userList;
   safeRoomState.chatHistory = room.chatHistory || [];
+  safeRoomState.loopMode = room.loopMode;
   return safeRoomState;
 };
 
-// Parang awa mo na, gumana ka nang maayos. Please.
 function handleHostPlaybackChange(socket, data) {
   const room = rooms[data.roomId];
   if (!room || socket.user.id !== room.hostUserId || !room.nowPlaying) return;
@@ -567,7 +583,7 @@ function handleHostPlaybackChange(socket, data) {
     const remainingDuration =
       room.nowPlaying.track.duration_ms - room.nowPlaying.position;
     room.songEndTimer = setTimeout(
-      () => playNextSong(data.roomId),
+      () => handleSongEnd(data.roomId),
       remainingDuration + 1500
     );
   }
@@ -631,6 +647,24 @@ function playNextSong(roomId) {
   const room = rooms[roomId];
   if (!room) return;
   playTrackAtIndex(roomId, room.nowPlayingIndex + 1);
+}
+
+function handleSongEnd(roomId) {
+  const room = rooms[roomId];
+  if (!room || !room.playlist || room.playlist.length === 0) return;
+
+  switch (room.loopMode) {
+    case "song":
+      playTrackAtIndex(roomId, room.nowPlayingIndex);
+      break;
+    case "playlist":
+      const nextIndex = (room.nowPlayingIndex + 1) % room.playlist.length;
+      playTrackAtIndex(roomId, nextIndex);
+      break;
+    default:
+      playNextSong(roomId);
+      break;
+  }
 }
 
 function playPrevSong(roomId) {
@@ -750,6 +784,7 @@ async function handleCreateRoom(socket, roomData) {
       songEndTimer: null,
       deletionTimer: null,
       isPlaying: false,
+      loopMode: "none",
     };
     socket.emit("roomCreated", { slug: newRoom.slug });
     broadcastLobbyData();
@@ -766,6 +801,12 @@ const generateSlug = (name) => {
   const randomString = Math.random().toString(36).substring(2, 8);
   return `${baseSlug}-${randomString}`;
 };
+
+function showToastToSocket(socket, message, type = "success") {
+  if (socket) {
+    socket.emit("toast", { type, message });
+  }
+}
 
 server.listen(PORT, () =>
   console.log(`VIBES server is live on http://localhost:${PORT}`)
