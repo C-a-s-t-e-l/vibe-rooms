@@ -761,6 +761,67 @@ body {
   }
 }
 
+@media (max-width: 768px) {
+  
+  /* --- FIX 1: Make the Chat Input and Button fit on one line --- */
+  
+  .chat-form {
+    /* Reduce the space between the input and the button */
+    gap: 0.5rem; 
+  }
+
+  #chat-input {
+    /* Slightly reduce the padding to give the button more space */
+    padding: 0.75rem 0.8rem;
+  }
+  
+  #send-btn {
+    /* This is the key fix for the button overflow. */
+    /* Remove text and only show an icon on mobile. */
+    font-size: 0; /* Hides the "Send" text */
+    width: 48px;  /* Gives the button a fixed, square-like width */
+    height: 48px; /* Matches the input field height */
+    padding: 0;   /* Removes any extra padding */
+    flex-shrink: 0; /* Prevents the button from being squished */
+    
+    /* Center the icon inside the button */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Add an SVG icon inside the button */
+  #send-btn::before {
+    content: '';
+    display: block;
+    width: 24px;
+    height: 24px;
+    background-color: white; /* Icon color */
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor'%3E%3Cpath d='M2.01 21L23 12 2.01 3 2 10l15 2-15 2z'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor'%3E%3Cpath d='M2.01 21L23 12 2.01 3 2 10l15 2-15 2z'/%3E%3C/svg%3E");
+    mask-repeat: no-repeat;
+    mask-position: center;
+  }
+
+  /* --- FIX 2: Make the Chat Messages more compact on mobile --- */
+  
+  #chat-messages {
+    /* Further reduce the gap between messages for mobile */
+    gap: 0.5rem;
+  }
+
+  .chat-message__avatar {
+    /* Make avatars even smaller on mobile */
+    width: 32px;
+    height: 32px;
+  }
+  
+  .chat-message__text {
+    /* Reduce the font size of the message text itself */
+    font-size: 0.9rem;
+  }
+}
+
 @media (max-width: 480px) {
   #room-view-wrapper {
     padding: 1rem;
