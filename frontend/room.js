@@ -39,21 +39,49 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function onPlayerStateChange(event) {
-    // When a song ends, the host tells the server to skip to the next one.
-    if (event.data === YT.PlayerState.ENDED) {
-      if (isHost) socket.emit("skipTrack", { roomId: currentRoomId });
-    }
-    // Update our play/pause icon based on the player's state.
-    const isPlaying = event.data === YT.PlayerState.PLAYING;
-    updatePlayPauseIcon(isPlaying);
-    // If playing, ensure our progress timer is running. If not, stop it.
-    if (isPlaying) {
-      const newStartTime = Date.now() - player.getCurrentTime() * 1000;
-      startProgressTimer(newStartTime, currentSongDuration);
-    } else {
-      clearInterval(nowPlayingInterval);
-    }
+  // When a song ends, the host tells the server to skip to the next one.
+  if (event.data === YT.PlayerState.ENDED) {
+    if (isHost) socket.emit("skipTrack", { roomId: currentRoomId });
   }
+
+  const isPlaying = event.data === YT.PlayerState.PLAYING;
+  updatePlayPauseIcon(isPlaying);
+
+  if (isPlaying) {
+    // --- THIS IS THE NEW LOGIC ---
+    // If we are the host and the current song's duration is 0, we need to fix it.
+    if (isHost && currentPlaylistState && currentPlaylistState.playlist[currentPlaylistState.nowPlayingIndex]) {
+        const currentTrack = currentPlaylistState.playlist[currentPlaylistState.nowPlayingIndex];
+        if (currentTrack.duration_ms === 0) {
+            // Get the real duration from the player API
+            const realDurationMs = player.getDuration() * 1000;
+            
+            // Only send the update if the duration is valid
+            if (realDurationMs > 0) {
+                console.log(`Host is updating duration for track ${currentPlaylistState.nowPlayingIndex} to ${realDurationMs}ms`);
+                // Send the correct duration to the server
+                socket.emit("hostUpdateDuration", {
+                    roomId: currentRoomId,
+                    trackIndex: currentPlaylistState.nowPlayingIndex,
+                    durationMs: realDurationMs
+                });
+                
+                // Also update our local copy immediately for the progress bar
+                currentTrack.duration_ms = realDurationMs;
+                currentSongDuration = realDurationMs;
+            }
+        }
+    }
+    // --- END OF NEW LOGIC ---
+
+    // Original progress timer logic remains
+    const newStartTime = Date.now() - (player.getCurrentTime() * 1000);
+    startProgressTimer(newStartTime, currentSongDuration);
+
+  } else {
+    clearInterval(nowPlayingInterval);
+  }
+}
 
   const formatTime = (ms) => {
     if (!ms || isNaN(ms)) return "0:00";
