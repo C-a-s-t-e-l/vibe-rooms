@@ -114,19 +114,14 @@
       <div class="room-layout">
         <!-- Music Panel -->
         <div class="panel music-panel">
-          <!-- THIS DIV IS NOW THE TARGET FOR JS -->
-          <div id="now-playing-container" class="now-playing-card">
-            <img
-              class="now-playing-art"
-              src="/placeholder.svg"
-              id="now-playing-art"
-              alt="Album Art"
-            />
-            <div class="now-playing-info">
-              <p id="now-playing-name">Nothing Playing</p>
-              <p id="now-playing-artist">Add a song to start the vibe</p>
-            </div>
-          </div>
+  <!-- THIS DIV NOW HAS THE CORRECT ID -->
+  <div id="now-playing-container" class="now-playing-card">
+      <img class="now-playing-art" src="/placeholder.svg" id="now-playing-art" alt="Album Art">
+      <div class="now-playing-info">
+          <p id="now-playing-name">Nothing Playing</p>
+          <p id="now-playing-artist">Add a song to start the vibe</p>
+      </div>
+  </div>
           <div class="playback-controls" id="host-controls-wrapper">
             <div class="time-display">
               <span id="current-time">0:00</span

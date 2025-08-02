@@ -652,6 +652,10 @@ body {
   transform: translateX(100%);
   font-weight: 500;
 }
+
+.queue-section .system-message {
+  margin: auto; 
+}
 @keyframes slideIn {
   to {
     opacity: 1;
