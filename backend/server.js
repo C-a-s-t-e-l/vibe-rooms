@@ -448,8 +448,11 @@ const getSanitizedRoomState = (room, isHost, user) => {
   safeRoomState.suggestions = room.suggestions;
   safeRoomState.isPlaying = room.isPlaying;
   safeRoomState.userList = userList;
+  // --> ADD THIS LINE <--
+  safeRoomState.chatHistory = room.chatHistory || []; 
   return safeRoomState;
 };
+
 function handleHostPlaybackChange(socket, data) {
   const room = rooms[data.roomId];
   if (!room || socket.user.id !== room.hostUserId || !room.nowPlaying) return;
@@ -585,6 +588,33 @@ function handleApproveSuggestion(socket, { roomId, suggestionId }) {
     // This adds the song to the end of the queue visually for all clients.
     io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
   }
+}
+
+function handleSendMessage(socket, msg) {
+  const room = rooms[msg.roomId];
+  if (!socket.user || !room) return;
+
+  const message = {
+    messageId: `msg_${Date.now()}_${Math.random()}`, // Unique ID for deletion
+    text: msg.text,
+    user: socket.user.displayName,
+    userId: socket.user.id,
+    avatar: socket.user.avatar,
+  };
+  
+  // Add message to room's history
+  if (!room.chatHistory) room.chatHistory = [];
+  room.chatHistory.push(message);
+
+  // Broadcast the new message to everyone in the room
+  io.to(msg.roomId).emit("newChatMessage", message);
+
+  // Set a timer to remove this specific message after 1 hour (3600 * 1000 ms)
+  setTimeout(() => {
+    if (room && room.chatHistory) {
+      room.chatHistory = room.chatHistory.filter(m => m.messageId !== message.messageId);
+    }
+  }, 3600 * 1000);
 }
 
 function handleRejectSuggestion(socket, { roomId, suggestionId }) {
