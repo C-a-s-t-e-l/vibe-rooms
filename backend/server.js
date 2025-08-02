@@ -218,12 +218,13 @@ function handleHostUpdateDuration(socket, { roomId, trackIndex, durationMs }) {
   if (room.songEndTimer) clearTimeout(room.songEndTimer);
   const timeSincePlay = Date.now() - room.nowPlaying.startTime;
   const remainingDuration = durationMs - timeSincePlay;
-  room.songEndTimer = setTimeout(() => playNextSong(roomId), remainingDuration + 1500);
+  // A 500ms buffer is safer than 1500ms now that we have the correct duration.
+  room.songEndTimer = setTimeout(() => playNextSong(roomId), remainingDuration + 500);
 
   // --> THIS IS THE FIX <--
-  // 4. Forcefully re-sync ALL clients with a new syncPulse containing the corrected data.
-  // This tells every guest's client about the correct duration.
-  io.to(roomId).emit("syncPulse", getAuthoritativeNowPlaying(room));
+  // 4. Forcefully re-sync ALL clients with a newSongPlaying event.
+  // This tells every client to completely refresh their player with the corrected duration.
+  io.to(roomId).emit("newSongPlaying", getAuthoritativeNowPlaying(room));
 }
 
 // --- DELETED: The handleSearchYouTube function has been completely removed. ---
