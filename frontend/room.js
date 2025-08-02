@@ -18,6 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let player;
   let initialNowPlayingData = null;
+  let isSeeking = false; 
   let lastSeekTimestamp = 0;
 
   window.onYouTubeIframeAPIReady = function () {
@@ -34,54 +35,44 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   function onPlayerReady(event) {
-    console.log("Player is ready to be controlled.");
-    const volumeSlider = document.getElementById("volume-slider");
-    if (player && player.setVolume) {
-      player.setVolume(volumeSlider.value);
-    }
-    if (initialNowPlayingData) {
-      console.log("Syncing to stored initial state now that player is ready.");
-      syncPlayerState(initialNowPlayingData);
-      initialNowPlayingData = null;
-    }
+  console.log("Player is ready to be controlled.");
+  const volumeSlider = document.getElementById("volume-slider");
+  if (player && player.setVolume) {
+    player.setVolume(volumeSlider.value);
   }
 
+  // --- THIS IS THE NEW LOGIC FOR GUESTS ---
+  if (!isHost) {
+    console.log("Guest player is ready, requesting perfect sync from host.");
+    socket.emit("requestPerfectSync", { roomId: currentRoomId });
+  }
+  // --- END OF NEW LOGIC ---
+
+  if (initialNowPlayingData) {
+    console.log("Syncing to stored initial state now that player is ready.");
+    syncPlayerState(initialNowPlayingData);
+    initialNowPlayingData = null;
+  }
+}
+
   function onPlayerStateChange(event) {
-    if (event.data === YT.PlayerState.ENDED) {
-      if (isHost) socket.emit("skipTrack", { roomId: currentRoomId });
-    }
-    const isPlaying = event.data === YT.PlayerState.PLAYING;
-    updatePlayPauseIcon(isPlaying);
-    if (isPlaying) {
-      if (
-        isHost &&
-        currentPlaylistState &&
-        currentPlaylistState.playlist[currentPlaylistState.nowPlayingIndex]
-      ) {
-        const currentTrack =
-          currentPlaylistState.playlist[currentPlaylistState.nowPlayingIndex];
-        if (currentTrack.duration_ms === 0) {
-          const realDurationMs = player.getDuration() * 1000;
-          if (realDurationMs > 0) {
-            console.log(
-              `Host is updating duration for track ${currentPlaylistState.nowPlayingIndex} to ${realDurationMs}ms`
-            );
-            socket.emit("hostUpdateDuration", {
-              roomId: currentRoomId,
-              trackIndex: currentPlaylistState.nowPlayingIndex,
-              durationMs: realDurationMs,
-            });
-            currentTrack.duration_ms = realDurationMs;
-            currentSongDuration = realDurationMs;
-          }
-        }
-      }
-      const newStartTime = Date.now() - player.getCurrentTime() * 1000;
-      startProgressTimer(newStartTime, currentSongDuration);
-    } else {
-      clearInterval(nowPlayingInterval);
+  // THE FIX: If the player starts playing AND we just loaded a new video (isSeeking is true),
+  // we ignore this first event and reset the flag. This prevents the pause-on-reload bug.
+  if (event.data === YT.PlayerState.PLAYING && isSeeking) {
+    isSeeking = false;
+    return;
+  }
+  
+  // This is the only other logic needed here. If the song naturally ends, the host tells the server to skip.
+  if (event.data === YT.PlayerState.ENDED) {
+    if (isHost) {
+      socket.emit("skipTrack", { roomId: currentRoomId });
     }
   }
+  
+  // We no longer need to call updatePlayPauseIcon or startProgressTimer from here,
+  // as the server-driven sync functions are now the single source of truth for the UI.
+}
 
   const formatTime = (ms) => {
     if (!ms || isNaN(ms)) return "0:00";
@@ -188,6 +179,30 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       syncPlayerState(nowPlayingData);
     });
+
+    socket.on("getHostTimestamp", ({ requesterId }) => {
+    // This only runs on the host's client
+    if (isHost && player && typeof player.getCurrentTime === 'function') {
+        const hostPlayerTime = player.getCurrentTime();
+        // The host sends their perfect timestamp back to the server
+        socket.emit("sendHostTimestamp", { requesterId, hostPlayerTime });
+    }
+});
+
+// The guest who requested the sync receives the perfect timestamp
+socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
+    // This only runs on the guest's client
+    if (!isHost && player && typeof player.seekTo === 'function') {
+        console.log(`Received perfect sync time from host: ${hostPlayerTime}. Seeking.`);
+        player.seekTo(hostPlayerTime, true);
+        // Ensure the player state matches the room state after seeking
+        if (currentPlaylistState && currentPlaylistState.isPlaying) {
+            player.playVideo();
+        } else {
+            player.pauseVideo();
+        }
+    }
+});
 
     socket.on("syncPulse", (data) => {
   // Ignore pulses if you are the host (as you are the source of truth)
@@ -387,6 +402,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // Only call loadVideoById if the video is actually different.
   if (currentPlayerVideoId !== track.videoId) {
     console.log(`Loading new track: ${track.videoId}`);
+    
+    // THE FIX: Set the isSeeking flag to true right before loading a new video.
+    // This tells onPlayerStateChange to ignore the initial "playing" event.
+    isSeeking = true; 
+    
     player.loadVideoById({
         videoId: track.videoId,
         startSeconds: correctedPositionInSeconds
