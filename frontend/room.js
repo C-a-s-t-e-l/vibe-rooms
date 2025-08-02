@@ -56,22 +56,19 @@ document.addEventListener("DOMContentLoaded", () => {
 }
 
   function onPlayerStateChange(event) {
-  // THE FIX: If the player starts playing AND we just loaded a new video (isSeeking is true),
-  // we ignore this first event and reset the flag. This prevents the pause-on-reload bug.
-  if (event.data === YT.PlayerState.PLAYING && isSeeking) {
-    isSeeking = false;
-    return;
-  }
-  
-  // This is the only other logic needed here. If the song naturally ends, the host tells the server to skip.
+  // This function's ONLY job now is to detect when a song finishes playing on its own.
+  // If it does, and this user is the host, it tells the server to skip to the next track.
   if (event.data === YT.PlayerState.ENDED) {
     if (isHost) {
       socket.emit("skipTrack", { roomId: currentRoomId });
     }
   }
-  
-  // We no longer need to call updatePlayPauseIcon or startProgressTimer from here,
-  // as the server-driven sync functions are now the single source of truth for the UI.
+
+  // It no longer handles PLAYING, PAUSED, or BUFFERING states.
+  // The server, via the syncPlayerState and syncPulse events, is now the single
+  // source of truth for all other player states. This prevents the client
+  // from fighting with the server, eliminates race conditions, and fixes the bugs
+  // you were seeing like the pause-on-reload and inconsistent UI.
 }
 
   const formatTime = (ms) => {
@@ -375,6 +372,7 @@ socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
   }
 
   function syncPlayerState(nowPlaying) {
+  // Always clear any existing timer when we receive a new state.
   clearInterval(nowPlayingInterval);
 
   if (!nowPlaying || !nowPlaying.track) {
@@ -389,47 +387,44 @@ socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
     return;
   }
 
+  // Update the static UI elements (song name, art, etc.)
   updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
-  const { track, isPlaying, position, serverTimestamp } = nowPlaying;
   
-  const latency = Date.now() - serverTimestamp;
-  const correctedPositionInSeconds = (position + latency) / 1000;
+  const { track, isPlaying, position, startTime } = nowPlaying;
   
   const currentVideoUrl = player.getVideoUrl();
   const currentPlayerVideoId = currentVideoUrl ? (currentVideoUrl.match(/v=([^&]+)/) || [])[1] : null;
 
-  // --- Definitive Player Control Logic ---
-  // Only call loadVideoById if the video is actually different.
+  // Only call loadVideoById if the video is actually different to prevent re-buffering.
   if (currentPlayerVideoId !== track.videoId) {
     console.log(`Loading new track: ${track.videoId}`);
-    
-    // THE FIX: Set the isSeeking flag to true right before loading a new video.
-    // This tells onPlayerStateChange to ignore the initial "playing" event.
-    isSeeking = true; 
-    
+    // We use the server's calculated position to start the video.
     player.loadVideoById({
         videoId: track.videoId,
-        startSeconds: correctedPositionInSeconds
+        startSeconds: position / 1000
     });
-  } else {
-    // If it's the same video, we ONLY seek. This is much faster and more reliable.
-    const clientTime = player.getCurrentTime();
-    // Only seek if the difference is significant, to avoid visual stutter for the host.
-    if (Math.abs(clientTime - correctedPositionInSeconds) > 1.5) {
-        console.log(`Seeking same track to correct position.`);
-        player.seekTo(correctedPositionInSeconds, true);
-    }
   }
-
-  // After loading or seeking, strictly enforce the server's isPlaying state.
+  
+  // --- THIS IS THE CRITICAL FIX FOR THE PROGRESS BAR & PAUSE-ON-RELOAD ---
   if (isPlaying) {
+    // If the server says the song is playing, start the visual progress timer.
+    // We use the server's authoritative `startTime` as the reference point.
+    startProgressTimer(startTime, track.duration_ms);
+
+    // Now, command the player to play.
     if (audioContextUnlocked) {
-        player.playVideo();
+      player.playVideo();
     } else {
-        audioUnlockOverlay.style.display = 'grid';
+      audioUnlockOverlay.style.display = 'grid';
     }
   } else {
-    // This command will now reliably work because we aren't calling loadVideoById unnecessarily.
+    // If the server says the song is paused, we do two things:
+    // 1. Manually set the progress bar to the last known position.
+    const progressPercent = (position / track.duration_ms) * 100;
+    document.getElementById("progress-bar").style.width = `${progressPercent}%`;
+    document.getElementById("current-time").textContent = formatTime(position);
+    
+    // 2. Command the player to pause. This fixes the host "mute" issue.
     player.pauseVideo();
   }
 }
