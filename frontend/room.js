@@ -168,32 +168,52 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     socket.on("syncPulse", (data) => {
-      if (
-        isHost ||
-        !data ||
-        !data.track ||
-        !player ||
-        typeof player.getPlayerState !== "function"
-      )
-        return;
-      const playerState = player.getPlayerState();
-      if (data.isPlaying && playerState !== YT.PlayerState.PLAYING) {
-        player.playVideo();
-      } else if (!data.isPlaying && playerState === YT.PlayerState.PLAYING) {
-        player.pauseVideo();
-      }
-      if (data.isPlaying) {
-        const latency = Date.now() - data.serverTimestamp;
-        const authoritativePosition = data.position + latency;
-        const clientPosition = player.getCurrentTime() * 1000;
-        const drift = authoritativePosition - clientPosition;
-        const now = Date.now();
-        if (Math.abs(drift) > 750 && now - lastSeekTimestamp > 2000) {
-          player.seekTo(authoritativePosition / 1000, true);
-          lastSeekTimestamp = now;
-        }
-      }
-    });
+  // FIX 1: The host is the source of truth and should not sync to its own pulse.
+  if (isHost) {
+    return;
+  }
+
+  // Guard clause to ensure we have all the data and the player is ready.
+  if (
+    !data ||
+    !data.track ||
+    !player ||
+    typeof player.getPlayerState !== "function"
+  ) {
+    return;
+  }
+
+  // --- Play/Pause State Correction ---
+  // This ensures a listener's player is in the correct play/pause state.
+  const playerState = player.getPlayerState();
+  if (data.isPlaying && playerState !== YT.PlayerState.PLAYING) {
+    player.playVideo();
+  } else if (!data.isPlaying && playerState === YT.PlayerState.PLAYING) {
+    player.pauseVideo();
+  }
+
+  // --- Position Drift Correction ---
+  // This section only runs if the track is supposed to be playing.
+  if (data.isPlaying) {
+    // Calculate the server's authoritative position, accounting for network latency.
+    const latency = Date.now() - data.serverTimestamp;
+    const authoritativePosition = data.position + latency;
+
+    // Get the client's current position.
+    const clientPosition = player.getCurrentTime() * 1000;
+
+    // Calculate the difference (the drift).
+    const drift = authoritativePosition - clientPosition;
+
+    const now = Date.now();
+
+    // FIX 2: If the drift is more than 500ms, and we haven't seeked recently, correct the player's position.
+    if (Math.abs(drift) > 500 && now - lastSeekTimestamp > 2000) {
+      player.seekTo(authoritativePosition / 1000, true);
+      lastSeekTimestamp = now; // Update the timestamp to prevent rapid seeks.
+    }
+  }
+});
 
     socket.on("hostAssigned", () => {
       isHost = true;
@@ -234,9 +254,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!isHost || !player || typeof player.getPlayerState !== "function")
         return;
       const playerState = player.getPlayerState();
-      socket.emit("hostPlaybackChange", {
+      
+       socket.emit("hostPlaybackChange", {
         roomId: currentRoomId,
-        isPlaying: playerState !== YT.PlayerState.PLAYING,
+        isPlaying: !currentPlaylistState.isPlaying, // <-- CHANGE THIS LINE
       });
     });
 
