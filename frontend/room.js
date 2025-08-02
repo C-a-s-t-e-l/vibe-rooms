@@ -127,6 +127,7 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("room-name-display").textContent = data.name;
       document.getElementById("listener-count-display").textContent =
         data.listenerCount;
+      window.va && window.va('event', 'Join Room', { roomName: data.name });
 
       const addVibeWrapper = document.getElementById("add-vibe-wrapper");
       

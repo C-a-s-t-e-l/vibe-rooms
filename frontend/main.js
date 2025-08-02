@@ -234,6 +234,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!roomName) return alert("Please enter a room name.");
       if (!selectedVibe || !selectedVibe.name)
         return alert("Please select a preset vibe or create a custom one.");
+
+      window.va && window.va('event', 'Create Room', { vibe: selectedVibe.name });
+
       socket.emit("createRoom", { roomName, vibe: selectedVibe });
       hideModal();
     });
