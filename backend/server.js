@@ -309,6 +309,7 @@ const generateUserList = (room) => {
 const getSanitizedPlaylist = (room) => ({
   playlist: room.playlist,
   nowPlayingIndex: room.nowPlayingIndex,
+  isPlaying: room.isPlaying, // <-- ADD THIS LINE
 });
 
 async function handleJoinRoom(socket, slug) {
@@ -518,22 +519,23 @@ function handleHostPlaybackChange(socket, data) {
 
   if (room.songEndTimer) clearTimeout(room.songEndTimer);
 
-  // --- THE DEFINITIVE FIX: STEP 1 ---
-  // Update the room's playing state FIRST. This is the most crucial change.
+  // --- THE REAL FIX ---
+  // 1. Determine the song's exact position *before* we change any state.
+  const positionBeforeChange = room.isPlaying
+    ? Date.now() - room.nowPlaying.startTime // If it was playing, calculate live position.
+    : room.nowPlaying.position;             // If it was paused, use the last saved position.
+
+  // 2. Now, update the room's playing state based on the host's command.
   room.isPlaying = data.isPlaying;
 
-  // Now, calculate the position based on the PREVIOUS state.
-  const currentPosition = Date.now() - room.nowPlaying.startTime;
+  // 3. Store the definitive position. If the host seeked, use that. Otherwise, use our calculated position.
+  room.nowPlaying.position = data.position !== undefined ? data.position : positionBeforeChange;
 
-  // If the host also sent a new position (from seeking), honor that.
-  // Otherwise, use the position we just calculated.
-  room.nowPlaying.position =
-    data.position !== undefined ? data.position : currentPosition;
-
-  // Finally, reset the `startTime` reference based on the now-correct position.
-  // This correctly "freezes" or "unfreezes" the time.
+  // 4. Finally, reset the `startTime` reference based on the now-correct position.
+  // This correctly "freezes" or "unfreezes" the time reference.
   room.nowPlaying.startTime = Date.now() - room.nowPlaying.position;
 
+  // If the song is now playing, set the timer to automatically play the next track.
   if (room.isPlaying) {
     const remainingDuration =
       room.nowPlaying.track.duration_ms - room.nowPlaying.position;
@@ -543,7 +545,7 @@ function handleHostPlaybackChange(socket, data) {
     );
   }
 
-  // Broadcast a "strong" update to force all clients into the correct state.
+  // Broadcast the perfectly synced state to all clients.
   io.to(data.roomId).emit("newSongPlaying", getAuthoritativeNowPlaying(room));
   broadcastLobbyData();
 }
