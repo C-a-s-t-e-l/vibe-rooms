@@ -192,9 +192,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const drift = authoritativePosition - clientPosition;
 
   // --> THE FIX: We lower the tolerance for seeking.
-  // If we are off by more than 250ms (a quarter second), we force a seek to the correct position.
-  // This makes seeking feel much more responsive.
-  if (Math.abs(drift) > 250) {
+  // If we are off by more than 150ms, we force a seek. This is very aggressive.
+  // We also add a check to not seek if the song is just about to end.
+  const trackDuration = player.getDuration() * 1000;
+  if (Math.abs(drift) > 150 && authoritativePosition < (trackDuration - 500)) {
     console.log(`Syncing guest player. Drift: ${Math.round(drift)}ms. Seeking to corrected position.`);
     player.seekTo(authoritativePosition / 1000, true);
   }
@@ -376,7 +377,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // --> CHANGE: This function now controls the Iframe player
-  function syncPlayerState(nowPlaying) {
+ function syncPlayerState(nowPlaying) {
   clearInterval(nowPlayingInterval);
   if (!nowPlaying || !nowPlaying.track) {
     updateNowPlayingUI(null, false);
@@ -384,26 +385,25 @@ document.addEventListener("DOMContentLoaded", () => {
     return;
   }
   
-  // --> THIS IS THE CORE FIX <--
-  // If the player isn't ready yet...
+  // If the player isn't ready, store the data and update the UI (this logic is still perfect).
   if (!player || typeof player.loadVideoById !== 'function') {
     console.warn("Player not ready. Storing initial state to sync upon readiness.");
-    // ...store the song data in our "memory"...
     initialNowPlayingData = nowPlaying;
-    // ...and IMPORTANTLY, update the visual UI so the user sees the correct song info immediately.
     updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
-    // ...then stop, because we can't control the player yet.
     return;
   }
   
-  // If the player IS ready, the function proceeds as normal.
+  // Update the visual UI.
   updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
 
   const { track, isPlaying, position, serverTimestamp } = nowPlaying;
+  
+  // --> THE FIX: We apply the same predictive logic for the INITIAL load.
   const latency = Date.now() - serverTimestamp;
-  const correctedPosition = (position + latency) / 1000;
+  const correctedPositionInSeconds = (position + latency) / 1000;
 
-  player.loadVideoById(track.videoId, correctedPosition);
+  // Load the video and tell it to start at our more accurate, predicted position.
+  player.loadVideoById(track.videoId, correctedPositionInSeconds);
   
   if (isPlaying) {
     if(audioContextUnlocked) {
