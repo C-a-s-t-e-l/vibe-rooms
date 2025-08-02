@@ -114,18 +114,22 @@
       <div class="room-layout">
         <!-- Music Panel -->
         <div class="panel music-panel">
-  <!-- THIS DIV NOW HAS THE CORRECT ID -->
-  <div id="now-playing-container" class="now-playing-card">
-      <img class="now-playing-art" src="/placeholder.svg" id="now-playing-art" alt="Album Art">
-      <div class="now-playing-info">
-          <p id="now-playing-name">Nothing Playing</p>
-          <p id="now-playing-artist">Add a song to start the vibe</p>
-      </div>
-  </div>
+          <div id="now-playing-container" class="now-playing-card">
+            <img
+              class="now-playing-art"
+              src="/placeholder.svg"
+              id="now-playing-art"
+              alt="Album Art"
+            />
+            <div class="now-playing-info">
+              <p id="now-playing-name">Nothing Playing</p>
+              <p id="now-playing-artist">Add a song to start the vibe</p>
+            </div>
+          </div>
           <div class="playback-controls" id="host-controls-wrapper">
             <div class="time-display">
-              <span id="current-time">0:00</span
-              ><span id="total-time">0:00</span>
+              <span id="current-time">0:00</span>
+              <span id="total-time">0:00</span>
             </div>
             <div id="progress-bar-container" class="progress-bar-container">
               <div id="progress-bar" class="progress-bar"></div>
@@ -200,7 +204,8 @@
                     class="link-input-field"
                     placeholder="Paste YouTube link to add..."
                     autocomplete="off"
-                  /><button type="submit" class="form-action-btn">Add</button>
+                  />
+                  <button type="submit" class="form-action-btn">Add</button>
                 </form>
               </div>
               <div class="guest-only-form">
@@ -212,9 +217,8 @@
                     class="link-input-field"
                     placeholder="Paste YouTube link to suggest..."
                     autocomplete="off"
-                  /><button type="submit" class="form-action-btn">
-                    Suggest
-                  </button>
+                  />
+                  <button type="submit" class="form-action-btn">Suggest</button>
                 </form>
               </div>
             </div>
@@ -222,27 +226,79 @@
         </div>
 
         <!-- Social Panel -->
-        <div class="panel-tabs">
-  <button class="tab-btn active" data-tab="chat">
-    <svg class="header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>
-    <span>Chat</span>
-  </button>
-  <button class="tab-btn" data-tab="users">
-    <svg class="header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-    </svg>
-    <!-- Corrected Structure Here -->
-    <span>Users<span id="user-count-display">(1)</span></span>
-  </button>
-  <button class="tab-btn" data-tab="suggestions">
-    <svg class="header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4 19h16v-2H4v2zM4 5v2h16V5H4zm2 11h12v-2H6v2zm3-4h6V9H9v3z"/></svg>
-    <!-- Corrected Structure Here -->
-    <span>Suggestions<span id="suggestions-count-display">(0)</span></span>
-  </button>
-</div>
+        <div class="panel social-panel">
+          <div class="panel-tabs">
+            <button class="tab-btn active" data-tab="chat">
+              <svg
+                class="header-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path
+                  d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"
+                />
+              </svg>
+              <span>Chat</span>
+            </button>
+            <button class="tab-btn" data-tab="users">
+              <svg
+                class="header-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+              <span>Users<span id="user-count-display">(1)</span></span>
+            </button>
+            <button class="tab-btn" data-tab="suggestions">
+              <svg
+                class="header-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path
+                  d="M4 19h16v-2H4v2zM4 5v2h16V5H4zm2 11h12v-2H6v2zm3-4h6V9H9v3z"
+                />
+              </svg>
+              <span
+                >Suggestions<span id="suggestions-count-display"
+                  >(0)</span
+                ></span
+              >
+            </button>
+          </div>
+          <div id="chat-content" class="tab-content active">
+            <div id="chat-messages" class="scrollable-list">
+              <!-- JS will populate this -->
+            </div>
+            <form id="chat-form" class="chat-form">
+              <input
+                type="text"
+                id="chat-input"
+                placeholder="Say something..."
+                autocomplete="off"
+                required
+              />
+              <button type="submit" id="send-btn">Send</button>
+            </form>
+          </div>
+          <div id="users-content" class="tab-content">
+            <div id="user-list" class="scrollable-list">
+              <!-- JS will populate this -->
+            </div>
+          </div>
+          <div id="suggestions-content" class="tab-content">
+            <div id="suggestions-list" class="scrollable-list">
+              <!-- JS will populate this -->
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
