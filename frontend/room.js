@@ -118,6 +118,10 @@ document.addEventListener("DOMContentLoaded", () => {
   socket.emit("joinRoom", currentRoomSlug);
 
   function setupSocketListeners() {
+    socket.on("toast", ({ type, message }) => {
+  showToast(message, type);
+});
+
     socket.on("connect_error", (err) => {
       if (err.message.includes("unauthorized")) {
         localStorage.removeItem("vibe_token");

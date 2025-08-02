@@ -660,6 +660,11 @@ body {
 .is-guest .host-only-controls {
   display: none;
 }
+/* Make progress bar non-interactive for guests */
+.is-guest .progress-bar-container {
+  cursor: default;
+  pointer-events: none;
+}
 
 @keyframes slideIn {
   to {

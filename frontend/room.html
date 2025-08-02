@@ -127,21 +127,28 @@
             </div>
           </div>
           <div class="playback-controls" id="host-controls-wrapper">
-            <!-- This is the new wrapper div -->
-            <div class="host-only-controls">
-              <div class="time-display">
-                <span id="current-time">0:00</span>
-                <span id="total-time">0:00</span>
-              </div>
-              <div id="progress-bar-container" class="progress-bar-container">
-                <div id="progress-bar" class="progress-bar"></div>
-              </div>
+            <!-- This section is now visible to everyone -->
+            <div class="time-display">
+              <span id="current-time">0:00</span>
+              <span id="total-time">0:00</span>
+            </div>
+            <div id="progress-bar-container" class="progress-bar-container">
+              <div id="progress-bar" class="progress-bar"></div>
             </div>
 
+            <!-- This section contains controls -->
             <div class="media-controls">
               <div class="volume-controls">
                 <button class="icon-btn" id="volume-btn">
-                  <!-- SVG for volume -->
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <path
+                      d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
+                    />
+                  </svg>
                 </button>
                 <input
                   type="range"
@@ -153,17 +160,35 @@
                 />
               </div>
 
-              <!-- This group also moves inside the host-only wrapper -->
+              <!-- This div wraps ONLY the host buttons -->
               <div class="host-only-controls">
                 <div class="media-buttons-group">
                   <button class="icon-btn" id="prev-btn">
-                    <!-- SVG for prev -->
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                    >
+                      <path d="M6 18V6h2v12H6m3.5-6L18 6v12l-8.5-6Z" />
+                    </svg>
                   </button>
                   <button class="icon-btn play-btn" id="play-pause-btn">
-                    <!-- SVG for play/pause -->
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                    >
+                      <path d="M8 5.14v14l11-7-11-7Z" />
+                    </svg>
                   </button>
                   <button class="icon-btn" id="next-btn">
-                    <!-- SVG for next -->
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                    >
+                      <path d="m6 18 8.5-6L6 6v12zm10-12v12h2V6h-2z" />
+                    </svg>
                   </button>
                 </div>
               </div>
