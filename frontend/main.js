@@ -24,14 +24,25 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- JWT AUTHENTICATION FLOW ---
 
   // 1. Check for a token in the URL query parameters (from Google OAuth redirect).
-  const urlParams = new URLSearchParams(window.location.search);
+    const urlParams = new URLSearchParams(window.location.search);
   const tokenFromUrl = urlParams.get('token');
+  const redirectFromUrl = urlParams.get('redirect');
 
   if (tokenFromUrl) {
-    // If a token is found, save it to localStorage.
     localStorage.setItem('vibe_token', tokenFromUrl);
-    // Clean the URL so the token isn't visible to the user.
-    window.history.replaceState({}, document.title, "/");
+    // We are now logged in.
+    
+    // Clear the redirect path from localStorage, as we've successfully used it.
+    localStorage.removeItem('redirect_after_login');
+    
+    if (redirectFromUrl) {
+      // If a redirect URL is present, GO THERE IMMEDIATELY.
+      window.location.href = redirectFromUrl;
+      return; // Stop executing the rest of the main.js script.
+    } else {
+      // If no redirect, just clean the URL and stay on the homepage.
+      window.history.replaceState({}, document.title, "/");
+    }
   }
 
   // 2. Retrieve the token from localStorage.
@@ -65,9 +76,24 @@ document.addEventListener("DOMContentLoaded", () => {
         loggedInView.style.display = "none";
     });
   } else {
-    // 4. If no token exists, immediately show the logged-out view.
-    loggedOutView.style.display = "block";
+      loggedOutView.style.display = "block";
     loggedInView.style.display = "none";
+    
+    // --- THIS IS THE FIX ---
+    // Check for a saved redirect path in localStorage.
+    const redirectPath = localStorage.getItem('redirect_after_login');
+    let googleAuthUrl = `${BACKEND_URL}/auth/google`;
+
+    if (redirectPath) {
+      // If a path exists, encode it and append it to the auth URL.
+      googleAuthUrl += `?redirect=${encodeURIComponent(redirectPath)}`;
+    }
+
+    // Find the login button and set its href dynamically.
+    const loginButton = loggedOutView.querySelector('.btn-primary');
+    if (loginButton) {
+      loginButton.href = googleAuthUrl;
+    }
   }
 
 

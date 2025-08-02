@@ -8,6 +8,10 @@ document.addEventListener("DOMContentLoaded", () => {
   volumeSlider.value = savedVolume;
 
   if (!userToken) {
+
+     const intendedDestination = window.location.pathname;
+    localStorage.setItem('redirect_after_login', intendedDestination);
+    
     window.location.href = "/";
     return;
   }
