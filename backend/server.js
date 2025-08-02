@@ -179,38 +179,58 @@ async function handleAddYouTubeTrack(socket, { roomId, url }) {
       tracks = await getVideoDetails([videoId]);
     } else {
       // Invalid URL
-      socket.emit("error", { message: "Invalid YouTube URL provided." });
+      // It's good practice to notify the user who sent the invalid link.
+      socket.emit("toast", { type: "error", message: "Invalid YouTube URL provided." });
       return;
     }
 
     if (tracks.length === 0) {
-      socket.emit("error", { message: "Could not find any videos from that URL." });
+      socket.emit("toast", { type: "error", message: "Could not find any videos from that URL." });
       return;
     }
 
     // Now, add the fetched tracks to the room
     const isHost = socket.user.id === room.hostUserId;
     if (isHost) {
-      room.playlist.push(...tracks); // Add all tracks to the playlist
+      // Host adds all tracks directly to the main playlist.
+      room.playlist.push(...tracks);
+      
+      // Notify the host that tracks were added.
+      socket.emit("toast", { type: "success", message: `Added ${tracks.length} track(s) to the playlist!` });
+
+      // If nothing was playing, start the first song of the newly added batch.
       if (room.nowPlayingIndex === -1 && room.playlist.length > 0) {
-        playTrackAtIndex(roomId, 0); // Start playing the first song of the batch
+        // Find the index of the first new track, which is the total length minus the number of new tracks.
+        const firstNewTrackIndex = room.playlist.length - tracks.length;
+        playTrackAtIndex(roomId, firstNewTrackIndex);
       } else {
+        // If something was already playing, just update everyone's queue.
         io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
       }
     } else {
-      // For guests, we only add the *first* track of the playlist as a suggestion to prevent spam
-      const suggestion = {
-        ...tracks[0],
+      // --- THIS IS THE UPDATED GUEST LOGIC ---
+      // Guest's submission becomes suggestions for all fetched tracks.
+      const newSuggestions = tracks.map(track => ({
+        ...track,
         suggestionId: `sugg_${Date.now()}_${Math.random()}`,
         suggester: { id: socket.user.id, name: socket.user.displayName },
-      };
-      room.suggestions.push(suggestion);
+      }));
+
+      // Add all the new suggestions to the room's suggestion list.
+      room.suggestions.push(...newSuggestions);
+      
+      // Notify the guest that their suggestions were received.
+      socket.emit("toast", { type: "success", message: `Sent ${newSuggestions.length} suggestion(s) to the host!` });
+
+      // Notify all clients of the updated suggestions list so it appears in the UI.
       io.to(roomId).emit("suggestionsUpdated", room.suggestions);
     }
 
   } catch (error) {
-    console.error("YouTube API Error:", error.response ? error.response.data : error.message);
-    socket.emit("error", { message: "Failed to fetch video data from YouTube." });
+    // Detailed logging for the server admin.
+    console.error("YouTube API Error:", error.response ? error.response.data.error.message : error.message);
+    // A generic, user-friendly error for the client.
+    socket.emit("toast", { type: "error", message: "Failed to fetch video data from YouTube." });
   }
 }
 
