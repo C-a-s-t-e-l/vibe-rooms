@@ -1,5 +1,3 @@
-// backend/server.js
-
 require("dotenv").config();
 const { createClient } = require("@supabase/supabase-js");
 const express = require("express");
@@ -11,10 +9,11 @@ const session = require("express-session");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const axios = require("axios");
-const pgSession = require('connect-pg-simple')(session);
-const { Pool } = require('pg');
+const pgSession = require("connect-pg-simple")(session);
+const { Pool } = require("pg");
+
 const pool = new Pool({
-  connectionString: process.env.SUPABASE_DATABASE_URL, 
+  connectionString: process.env.SUPABASE_DATABASE_URL,
 });
 const API_KEY = process.env.YOUTUBE_API_KEY;
 
@@ -37,24 +36,27 @@ const reconnectionTimers = {};
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
+
 const sessionMiddleware = session({
   store: new pgSession({
-    pool: pool,                // Connection pool
-    tableName: 'user_sessions', // Name of the table to store sessions in
-    createTableIfMissing: true // Automatically create the table
+    pool: pool,
+    tableName: "user_sessions",
+    createTableIfMissing: true,
   }),
   secret: process.env.SESSION_SECRET,
   resave: false,
-  saveUninitialized: false, // Recommended for production stores
+  saveUninitialized: false,
   cookie: {
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    maxAge: 30 * 24 * 60 * 60 * 1000,
     secure: process.env.NODE_ENV === "production",
     sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
   },
 });
+
 app.use(sessionMiddleware);
 app.use(passport.initialize());
 app.use(passport.session());
+
 passport.use(
   new GoogleStrategy(
     {
@@ -69,11 +71,11 @@ passport.use(
 );
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
+
 app.get(
   "/auth/google",
   (req, res, next) => {
-    // --- THIS IS THE FIX ---
-    // If a 'redirect' query parameter exists, save it in the session before authenticating.
+   
     if (req.query.redirect) {
       req.session.redirectUrl = req.query.redirect;
     }
@@ -98,17 +100,14 @@ app.get(
       expiresIn: "1d",
     });
 
-    // --- THIS IS THE FIX ---
-    // Check if we saved a redirect URL in the session.
     const redirectUrl = req.session.redirectUrl;
-    req.session.redirectUrl = null; // Clear it after use.
+    req.session.redirectUrl = null;
 
     let finalRedirect = `${FRONTEND_URL}?token=${token}`;
     if (redirectUrl) {
-      // If it exists, append it to the final redirect URL.
       finalRedirect += `&redirect=${encodeURIComponent(redirectUrl)}`;
     }
-    
+
     res.redirect(finalRedirect);
   }
 );
@@ -341,7 +340,7 @@ const generateUserList = (room) => {
 const getSanitizedPlaylist = (room) => ({
   playlist: room.playlist,
   nowPlayingIndex: room.nowPlayingIndex,
-  isPlaying: room.isPlaying, // <-- ADD THIS LINE
+  isPlaying: room.isPlaying,
 });
 
 async function handleJoinRoom(socket, slug) {
@@ -500,11 +499,10 @@ function playTrackAtIndex(roomId, index) {
   io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
 }
 
-// THIS IS THE MOST IMPORTANT SERVER-SIDE FIX
+// Lord, patawad, pero ito na yung source of truth.
 const getAuthoritativeNowPlaying = (room) => {
   if (!room || !room.nowPlaying) return null;
 
-  // This is now always correct because the main handler sets the state perfectly.
   const currentPosition = room.isPlaying
     ? Date.now() - room.nowPlaying.startTime
     : room.nowPlaying.position;
@@ -544,30 +542,22 @@ const getSanitizedRoomState = (room, isHost, user) => {
   return safeRoomState;
 };
 
-// THIS IS THE SECOND MOST IMPORTANT SERVER-SIDE FIX
+// Parang awa mo na, gumana ka nang maayos. Please.
 function handleHostPlaybackChange(socket, data) {
   const room = rooms[data.roomId];
   if (!room || socket.user.id !== room.hostUserId || !room.nowPlaying) return;
 
   if (room.songEndTimer) clearTimeout(room.songEndTimer);
 
-  // --- THE REAL FIX ---
-  // 1. Determine the song's exact position *before* we change any state.
   const positionBeforeChange = room.isPlaying
-    ? Date.now() - room.nowPlaying.startTime // If it was playing, calculate live position.
-    : room.nowPlaying.position;             // If it was paused, use the last saved position.
+    ? Date.now() - room.nowPlaying.startTime
+    : room.nowPlaying.position;
 
-  // 2. Now, update the room's playing state based on the host's command.
   room.isPlaying = data.isPlaying;
-
-  // 3. Store the definitive position. If the host seeked, use that. Otherwise, use our calculated position.
-  room.nowPlaying.position = data.position !== undefined ? data.position : positionBeforeChange;
-
-  // 4. Finally, reset the `startTime` reference based on the now-correct position.
-  // This correctly "freezes" or "unfreezes" the time reference.
+  room.nowPlaying.position =
+    data.position !== undefined ? data.position : positionBeforeChange;
   room.nowPlaying.startTime = Date.now() - room.nowPlaying.position;
 
-  // If the song is now playing, set the timer to automatically play the next track.
   if (room.isPlaying) {
     const remainingDuration =
       room.nowPlaying.track.duration_ms - room.nowPlaying.position;
@@ -577,7 +567,6 @@ function handleHostPlaybackChange(socket, data) {
     );
   }
 
-  // Broadcast the perfectly synced state to all clients.
   io.to(data.roomId).emit("newSongPlaying", getAuthoritativeNowPlaying(room));
   broadcastLobbyData();
 }
@@ -774,5 +763,5 @@ const generateSlug = (name) => {
 };
 
 server.listen(PORT, () =>
-  console.log(`Vibe Rooms server is live on http://localhost:${PORT}`)
+  console.log(`VIBES server is live on http://localhost:${PORT}`)
 );
