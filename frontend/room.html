@@ -9,7 +9,6 @@
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Vibe Room</title>
-    <!-- The ONLY file you need to link is the new room.css -->
     <link rel="stylesheet" href="/room.css" />
     <style>
       /* Non-layout critical styles from original file, kept for functionality */
@@ -43,6 +42,7 @@
         }
       }
 
+      /* These classes are controlled by JS to show/hide the correct link input form */
       .is-guest .host-only-form {
         display: none;
       }
@@ -81,6 +81,8 @@
             />
           </svg>
           <h1 id="room-name-display">Loading Vibe...</h1>
+        </div>
+        <div class="header-actions">
           <div class="listener-count">
             <svg
               class="header-icon"
@@ -89,49 +91,46 @@
               fill="currentColor"
             >
               <path
-                d="M16 17a2 2 0 0 1-2-2a2 2 0 0 1 2-2a2 2 0 0 1 2 2a2 2 0 0 1-2 2m-4-7a2 2 0 0 1-2-2a2 2 0 0 1 2-2a2 2 0 0 1 2 2a2 2 0 0 1-2 2m0 7a2 2 0 0 1-2-2a2 2 0 0 1 2-2a2 2 0 0 1 2 2a2 2 0 0 1-2 2m-4-7a2 2 0 0 1-2-2a2 2 0 0 1 2-2a2 2 0 0 1 2 2a2 2 0 0 1-2 2m12-3h-2.09a6.93 6.93 0 0 0-1.13-2.36A8.88 8.88 0 0 1 20 12M4.22 7.64A6.93 6.93 0 0 0 3.09 10H1a9 9 0 0 1 3.22-4.36M15.91 4.09c-.93-.94-2.09-1.59-3.41-1.83V1a9 9 0 0 1 5.32 3.09M8.09 4.09A9 9 0 0 1 12 1v1.26c-1.32.24-2.48.89-3.41 1.83m-5 11.82c.93.94 2.09 1.59 3.41 1.83V23a9 9 0 0 1-5.32-3.09m11.82 5c-.93-.94-2.09-1.59-3.41-1.83V23a9 9 0 0 1 5.32-3.09Z"
+                d="M12 1a9 9 0 0 0-9 9v7a3 3 0 0 0 3 3h1v-4h-2v-3a7 7 0 0 1 7-7 7 7 0 0 1 7 7v3h-2v4h1a3 3 0 0 0 3-3v-7a9 9 0 0 0-9-9Z"
               />
             </svg>
             <span id="listener-count-display">1</span> listening
           </div>
+          <a href="/" class="btn-leave">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path
+                d="M16 17v-3H9v-4h7V7l5 5-5 5M14 2a2 2 0 0 1 2 2v2h-2V4H5v16h9v-2h2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9Z"
+              />
+            </svg>
+            Leave Vibe
+          </a>
         </div>
-        <a href="/" class="btn-leave">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-          >
-            <path
-              d="M16 17v-3H9v-4h7V7l5 5-5 5M14 2a2 2 0 0 1 2 2v2h-2V4H5v16h9v-2h2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9Z"
-            />
-          </svg>
-          Leave Vibe
-        </a>
       </header>
 
       <div class="room-layout">
-        <!-- Music Panel - Redesigned and placed on the left -->
+        <!-- Music Panel -->
         <div class="panel music-panel">
-          <div class="now-playing-hero">
-            <div class="album-art-container">
-              <img
-                src="/placeholder.svg"
-                id="now-playing-art"
-                alt="Album Art"
-              />
-            </div>
-            <div class="hero-info-overlay">
-              <div class="track-info">
-                <p id="now-playing-name">Nothing Playing</p>
-                <p id="now-playing-artist">Add a song to start the vibe</p>
-              </div>
+          <!-- THIS DIV IS NOW THE TARGET FOR JS -->
+          <div id="now-playing-container" class="now-playing-card">
+            <img
+              class="now-playing-art"
+              src="/placeholder.svg"
+              id="now-playing-art"
+              alt="Album Art"
+            />
+            <div class="now-playing-info">
+              <p id="now-playing-name">Nothing Playing</p>
+              <p id="now-playing-artist">Add a song to start the vibe</p>
             </div>
           </div>
-
           <div class="playback-controls" id="host-controls-wrapper">
             <div class="time-display">
-              <span id="current-time">0:00</span>
-              <span id="total-time">0:00</span>
+              <span id="current-time">0:00</span
+              ><span id="total-time">0:00</span>
             </div>
             <div id="progress-bar-container" class="progress-bar-container">
               <div id="progress-bar" class="progress-bar"></div>
@@ -189,17 +188,12 @@
               </div>
             </div>
           </div>
-
           <div class="panel-section queue-section">
             <h4 class="section-title">Up Next</h4>
-            <div id="queue-list" class="scrollable-list"></div>
+            <div id="queue-list" class="scrollable-list">
+              <!-- JS will populate this -->
+            </div>
           </div>
-
-          <div class="panel-section suggestions-section">
-            <h4 class="section-title">Suggestions</h4>
-            <div id="suggestions-list" class="scrollable-list"></div>
-          </div>
-
           <div class="panel-section add-vibe-section">
             <div id="add-vibe-wrapper">
               <div class="host-only-form">
@@ -211,8 +205,7 @@
                     class="link-input-field"
                     placeholder="Paste YouTube link to add..."
                     autocomplete="off"
-                  />
-                  <button type="submit" class="form-action-btn">Add</button>
+                  /><button type="submit" class="form-action-btn">Add</button>
                 </form>
               </div>
               <div class="guest-only-form">
@@ -224,62 +217,37 @@
                     class="link-input-field"
                     placeholder="Paste YouTube link to suggest..."
                     autocomplete="off"
-                  />
-                  <button type="submit" class="form-action-btn">Suggest</button>
+                  /><button type="submit" class="form-action-btn">
+                    Suggest
+                  </button>
                 </form>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Chat Panel - Placed on the right -->
-        <div class="panel chat-panel">
-          <div class="panel-tabs">
-            <button class="tab-btn active" data-tab="chat">
-              <svg
-                class="header-icon"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path
-                  d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10c.83 0 1.64-.1 2.42-.29.43-.11.66-.59.4-.99a.85.85 0 0 0-1.07-.33c-2.32.93-4.94.93-7.26 0A8 8 0 0 1 12 4a8 8 0 0 1 8 8c0 1.8-.6 3.47-1.63 4.82-.26.34-.1.82.31 1a5.3 5.3 0 0 0 3.03 1.18C21.9 19.9 22 19.7 22 19.5c0-4.1-3.1-7.5-7-7.5-2.2 0-4.2.9-5.7 2.3-1.5-1.4-3.5-2.3-5.7-2.3C2 12 .5 10 0 8.5.5 7 2 5 3.6 5c1.4 0 2.7.6 3.6 1.5.9-.9 2.2-1.5 3.6-1.5C11.2 5 12 5.8 12 7c0 .9-.5 1.7-1.2 2.2a6.3 6.3 0 0 0 1.2 5.8c1.5-1.4 3.5-2.3 5.7-2.3 1.9 0 3.6.8 4.8 2a8.9 8.9 0 0 0 1.5-5A10 10 0 0 0 12 2Z"
-                />
-              </svg>
-              <span>Chat</span>
-            </button>
-            <button class="tab-btn" data-tab="users">
-              <svg
-                class="header-icon"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-              <span>Users</span><span id="user-count-display">(1)</span>
-            </button>
-          </div>
-          <div id="chat-content" class="tab-content active">
-            <div id="chat-messages" class="chat-messages"></div>
-            <form id="chat-form" class="chat-form">
-              <input
-                type="text"
-                id="chat-input"
-                placeholder="Say something..."
-                autocomplete="off"
-                required
-              />
-              <button type="submit" id="send-btn">Send</button>
-            </form>
-          </div>
-          <div id="users-content" class="tab-content">
-            <div id="user-list" class="user-list"></div>
-          </div>
-        </div>
+        <!-- Social Panel -->
+        <div class="panel-tabs">
+  <button class="tab-btn active" data-tab="chat">
+    <svg class="header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>
+    <span>Chat</span>
+  </button>
+  <button class="tab-btn" data-tab="users">
+    <svg class="header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+    <!-- Corrected Structure Here -->
+    <span>Users<span id="user-count-display">(1)</span></span>
+  </button>
+  <button class="tab-btn" data-tab="suggestions">
+    <svg class="header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4 19h16v-2H4v2zM4 5v2h16V5H4zm2 11h12v-2H6v2zm3-4h6V9H9v3z"/></svg>
+    <!-- Corrected Structure Here -->
+    <span>Suggestions<span id="suggestions-count-display">(0)</span></span>
+  </button>
+</div>
       </div>
     </div>
 

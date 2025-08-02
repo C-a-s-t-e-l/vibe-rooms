@@ -11,13 +11,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const socket = io(BACKEND_URL, { auth: { token: userToken } });
 
-  // --> CHANGE: Global player variable for the YouTube Iframe Player
   let player;
   let initialNowPlayingData = null;
   let lastSeekTimestamp = 0;
 
-  // --> NEW: These global functions are REQUIRED by the YouTube API
-  // They must be in the global scope, so we define them here.
   window.onYouTubeIframeAPIReady = function () {
     console.log("YouTube Iframe API is ready.");
     player = new YT.Player("youtube-player", {
@@ -32,68 +29,54 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   function onPlayerReady(event) {
-  console.log("Player is ready to be controlled.");
-  // Set initial volume
-  const volumeSlider = document.getElementById("volume-slider");
-  if (player && player.setVolume) {
+    console.log("Player is ready to be controlled.");
+    const volumeSlider = document.getElementById("volume-slider");
+    if (player && player.setVolume) {
       player.setVolume(volumeSlider.value);
+    }
+    if (initialNowPlayingData) {
+      console.log("Syncing to stored initial state now that player is ready.");
+      syncPlayerState(initialNowPlayingData);
+      initialNowPlayingData = null;
+    }
   }
-
-  // --> THIS IS THE SECOND HALF OF THE FIX <--
-  // Check our "memory". If we have a song that was supposed to be playing...
-  if (initialNowPlayingData) {
-    console.log("Syncing to stored initial state now that player is ready.");
-    // ...sync it now! This will load and play the video correctly.
-    syncPlayerState(initialNowPlayingData);
-    // And clear the memory so we don't accidentally do this again.
-    initialNowPlayingData = null;
-  }
-}
 
   function onPlayerStateChange(event) {
-  // When a song ends, the host tells the server to skip to the next one.
-  if (event.data === YT.PlayerState.ENDED) {
-    if (isHost) socket.emit("skipTrack", { roomId: currentRoomId });
-  }
-
-  const isPlaying = event.data === YT.PlayerState.PLAYING;
-  updatePlayPauseIcon(isPlaying);
-
-  if (isPlaying) {
-    // --- THIS IS THE NEW LOGIC ---
-    // If we are the host and the current song's duration is 0, we need to fix it.
-    if (isHost && currentPlaylistState && currentPlaylistState.playlist[currentPlaylistState.nowPlayingIndex]) {
-        const currentTrack = currentPlaylistState.playlist[currentPlaylistState.nowPlayingIndex];
-        if (currentTrack.duration_ms === 0) {
-            // Get the real duration from the player API
-            const realDurationMs = player.getDuration() * 1000;
-            
-            // Only send the update if the duration is valid
-            if (realDurationMs > 0) {
-                console.log(`Host is updating duration for track ${currentPlaylistState.nowPlayingIndex} to ${realDurationMs}ms`);
-                // Send the correct duration to the server
-                socket.emit("hostUpdateDuration", {
-                    roomId: currentRoomId,
-                    trackIndex: currentPlaylistState.nowPlayingIndex,
-                    durationMs: realDurationMs
-                });
-                
-                // Also update our local copy immediately for the progress bar
-                currentTrack.duration_ms = realDurationMs;
-                currentSongDuration = realDurationMs;
-            }
-        }
+    if (event.data === YT.PlayerState.ENDED) {
+      if (isHost) socket.emit("skipTrack", { roomId: currentRoomId });
     }
-    // --- END OF NEW LOGIC ---
-
-    // Original progress timer logic remains
-    const newStartTime = Date.now() - (player.getCurrentTime() * 1000);
-    startProgressTimer(newStartTime, currentSongDuration);
-
-  } else {
-    clearInterval(nowPlayingInterval);
+    const isPlaying = event.data === YT.PlayerState.PLAYING;
+    updatePlayPauseIcon(isPlaying);
+    if (isPlaying) {
+      if (
+        isHost &&
+        currentPlaylistState &&
+        currentPlaylistState.playlist[currentPlaylistState.nowPlayingIndex]
+      ) {
+        const currentTrack =
+          currentPlaylistState.playlist[currentPlaylistState.nowPlayingIndex];
+        if (currentTrack.duration_ms === 0) {
+          const realDurationMs = player.getDuration() * 1000;
+          if (realDurationMs > 0) {
+            console.log(
+              `Host is updating duration for track ${currentPlaylistState.nowPlayingIndex} to ${realDurationMs}ms`
+            );
+            socket.emit("hostUpdateDuration", {
+              roomId: currentRoomId,
+              trackIndex: currentPlaylistState.nowPlayingIndex,
+              durationMs: realDurationMs,
+            });
+            currentTrack.duration_ms = realDurationMs;
+            currentSongDuration = realDurationMs;
+          }
+        }
+      }
+      const newStartTime = Date.now() - player.getCurrentTime() * 1000;
+      startProgressTimer(newStartTime, currentSongDuration);
+    } else {
+      clearInterval(nowPlayingInterval);
+    }
   }
-}
 
   const formatTime = (ms) => {
     if (!ms || isNaN(ms)) return "0:00";
@@ -114,7 +97,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const audioUnlockOverlay = document.getElementById("audio-unlock-overlay");
   const playPauseBtn = document.getElementById("play-pause-btn");
-  // --> DELETED: `nativeAudioPlayer` is no longer needed.
 
   const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7Z"/></svg>`;
   const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
@@ -123,7 +105,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (audioContextUnlocked) return;
     audioContextUnlocked = true;
     audioUnlockOverlay.style.display = "none";
-    // --> CHANGE: We don't need to manually play here anymore. The sync logic will handle it.
   }
 
   audioUnlockOverlay.addEventListener("click", unlockAudio);
@@ -147,9 +128,12 @@ document.addEventListener("DOMContentLoaded", () => {
       currentRoomId = data.id;
       document.title = data.name;
       isHost = data.isHost;
-      const addVibeWrapper = document.getElementById("add-vibe-wrapper");
-      addVibeWrapper.classList.toggle("is-host", isHost);
-      addVibeWrapper.classList.toggle("is-guest", !isHost);
+      document
+        .getElementById("add-vibe-wrapper")
+        .classList.toggle("is-host", isHost);
+      document
+        .getElementById("add-vibe-wrapper")
+        .classList.toggle("is-guest", !isHost);
       document
         .getElementById("host-controls-wrapper")
         .classList.toggle("is-guest", !isHost);
@@ -175,36 +159,41 @@ document.addEventListener("DOMContentLoaded", () => {
       syncPlayerState(nowPlayingData);
     });
 
-    // --> CHANGE: The syncPulse logic is simplified. We trust the host's player state more.
-   socket.on("syncPulse", (data) => {
-  // We don't sync for the host, as they are the source of truth.
-  if (isHost || !data || !data.track || !player || typeof player.getPlayerState !== 'function') return;
-
-  const latency = Date.now() - data.serverTimestamp;
-  const authoritativePosition = data.position + latency;
-  const clientPosition = player.getCurrentTime() * 1000;
-  const drift = authoritativePosition - clientPosition;
-
-  // --> THE FINAL FIX: Add a seek cooldown to prevent jitter.
-  const now = Date.now();
-  // Only allow a seek command to be processed if it's been more than our sync interval (1 sec) since the last one.
-  if (Math.abs(drift) > 150 && (now - lastSeekTimestamp > 1000)) {
-      const trackDuration = player.getDuration() * 1000;
-      if (authoritativePosition < (trackDuration - 500)) {
-          console.log(`Syncing guest player. Drift: ${Math.round(drift)}ms. Seeking.`);
+    socket.on("syncPulse", (data) => {
+      if (
+        isHost ||
+        !data ||
+        !data.track ||
+        !player ||
+        typeof player.getPlayerState !== "function"
+      )
+        return;
+      const latency = Date.now() - data.serverTimestamp;
+      const authoritativePosition = data.position + latency;
+      const clientPosition = player.getCurrentTime() * 1000;
+      const drift = authoritativePosition - clientPosition;
+      const now = Date.now();
+      if (Math.abs(drift) > 150 && now - lastSeekTimestamp > 1000) {
+        const trackDuration = player.getDuration() * 1000;
+        if (authoritativePosition < trackDuration - 500) {
+          console.log(
+            `Syncing guest player. Drift: ${Math.round(drift)}ms. Seeking.`
+          );
           player.seekTo(authoritativePosition / 1000, true);
-          lastSeekTimestamp = now; // Update the timestamp after a seek.
+          lastSeekTimestamp = now;
+        }
       }
-  }
-
-  // Always ensure the play/pause state is correct.
-  const playerState = player.getPlayerState();
-  if (data.isPlaying && playerState !== YT.PlayerState.PLAYING) {
-    player.playVideo();
-  } else if (!data.isPlaying && (playerState === YT.PlayerState.PLAYING || playerState === YT.PlayerState.BUFFERING)) {
-    player.pauseVideo();
-  }
-});
+      const playerState = player.getPlayerState();
+      if (data.isPlaying && playerState !== YT.PlayerState.PLAYING) {
+        player.playVideo();
+      } else if (
+        !data.isPlaying &&
+        (playerState === YT.PlayerState.PLAYING ||
+          playerState === YT.PlayerState.BUFFERING)
+      ) {
+        player.pauseVideo();
+      }
+    });
 
     socket.on("hostAssigned", () => {
       isHost = true;
@@ -217,32 +206,33 @@ document.addEventListener("DOMContentLoaded", () => {
       updateSuggestionsUI(currentSuggestions);
     });
 
-    // Unchanged listeners
     socket.on("playlistUpdated", (playlistState) => {
       currentPlaylistState = playlistState;
       updatePlaylistUI(playlistState);
     });
+
     socket.on("suggestionsUpdated", (suggestions) => {
       currentSuggestions = suggestions;
       updateSuggestionsUI(suggestions);
     });
+
     socket.on("newChatMessage", (message) =>
       message.system
         ? renderSystemMessage(message.text)
         : renderChatMessage(message)
     );
+
     socket.on("updateUserList", (users) => {
       updateUserListUI(users);
     });
+
     socket.on("updateListenerCount", (count) => {
       document.getElementById("listener-count-display").textContent = count;
     });
-    // --- DELETED: The 'searchYouTubeResults' listener is removed. ---
   }
 
   function setupUIEventListeners() {
     playPauseBtn.addEventListener("click", () => {
-      // --> CHANGE: Use the Iframe Player's state
       if (!isHost || !player || typeof player.getPlayerState !== "function")
         return;
       const playerState = player.getPlayerState();
@@ -267,16 +257,13 @@ document.addEventListener("DOMContentLoaded", () => {
         "click",
         () => isHost && socket.emit("playPrevTrack", { roomId: currentRoomId })
       );
-
     document.getElementById("volume-slider").addEventListener("input", (e) => {
-      // --> CHANGE: Use Iframe Player's volume control
       if (player && player.setVolume) player.setVolume(e.target.value);
     });
 
     document
       .getElementById("progress-bar-container")
       .addEventListener("click", (e) => {
-        // --> CHANGE: Use Iframe Player's seek function
         if (!isHost || !currentSongDuration || !player) return;
         const bar = document.getElementById("progress-bar-container");
         const seekRatio = e.offsetX / bar.clientWidth;
@@ -300,54 +287,47 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
 
-    const handleLinkSubmit = async (e) => { // Make the function async
-  e.preventDefault();
-  const inputEl = isHost ? document.getElementById("host-link-input") : document.getElementById("guest-link-input");
-  const url = inputEl.value.trim();
-  if (!url) return;
-  inputEl.value = ""; // Clear the input immediately
-
-  try {
-    // Step 1: Frontend calls YouTube's oEmbed endpoint. This is quota-free and reliable.
-    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
-    const response = await fetch(oembedUrl);
-
-    if (!response.ok) {
-        throw new Error("Could not fetch video information.");
-    }
-
-    const data = await response.json();
-
-    // The oEmbed endpoint doesn't give us duration or videoId directly. We have to be clever.
-    const videoIdMatch = url.match(/(?:v=|\/)([0-9A-Za-z_-]{11}).*/);
-    if (!videoIdMatch || !videoIdMatch[1]) {
-        throw new Error("Could not parse Video ID from URL.");
-    }
-    const videoId = videoIdMatch[1];
-    
-    // We can't get duration easily, so we'll let the backend fill it in later if needed,
-    // or better yet, get it from the Iframe Player API once it loads. For now, we set it to 0.
-
-    // Step 2: Build the track object on the frontend.
-    const trackData = {
-      videoId: videoId,
-      name: data.title,
-      artist: data.author_name,
-      albumArt: data.thumbnail_url,
-      duration_ms: 0, // We'll handle duration later
-      url: url,
-      source: "youtube",
+    const handleLinkSubmit = async (e) => {
+      e.preventDefault();
+      const inputEl = isHost
+        ? document.getElementById("host-link-input")
+        : document.getElementById("guest-link-input");
+      const url = inputEl.value.trim();
+      if (!url) return;
+      inputEl.value = "";
+      try {
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(
+          url
+        )}&format=json`;
+        const response = await fetch(oembedUrl);
+        if (!response.ok) {
+          throw new Error("Could not fetch video information.");
+        }
+        const data = await response.json();
+        const videoIdMatch = url.match(/(?:v=|\/)([0-9A-Za-z_-]{11}).*/);
+        if (!videoIdMatch || !videoIdMatch[1]) {
+          throw new Error("Could not parse Video ID from URL.");
+        }
+        const videoId = videoIdMatch[1];
+        const trackData = {
+          videoId: videoId,
+          name: data.title,
+          artist: data.author_name,
+          albumArt: data.thumbnail_url,
+          duration_ms: 0,
+          url: url,
+          source: "youtube",
+        };
+        socket.emit("addYouTubeTrack", {
+          roomId: currentRoomId,
+          trackData: trackData,
+        });
+        showToast(isHost ? "Added to playlist!" : "Suggestion sent!");
+      } catch (error) {
+        console.error("Failed to add track:", error);
+        showToast("Sorry, that link seems to be invalid.", "error");
+      }
     };
-
-    // Step 3: Send the complete track object to the server.
-    socket.emit("addYouTubeTrack", { roomId: currentRoomId, trackData: trackData });
-    showToast(isHost ? "Added to playlist!" : "Suggestion sent!");
-
-  } catch (error) {
-    console.error("Failed to add track:", error);
-    showToast("Sorry, that link seems to be invalid.", "error");
-  }
-};
     document
       .getElementById("host-link-form")
       .addEventListener("submit", handleLinkSubmit);
@@ -355,9 +335,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .getElementById("guest-link-form")
       .addEventListener("submit", handleLinkSubmit);
 
-    // --- DELETED: All search-related event listeners are removed. ---
-
-    // Tab switching logic (unchanged)
+    // --- New Tab Logic ---
     const tabButtons = document.querySelectorAll(".tab-btn");
     const tabContents = document.querySelectorAll(".tab-content");
     tabButtons.forEach((button) => {
@@ -373,46 +351,31 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // --> CHANGE: This function now controls the Iframe player
- function syncPlayerState(nowPlaying) {
-  clearInterval(nowPlayingInterval);
-  if (!nowPlaying || !nowPlaying.track) {
-    updateNowPlayingUI(null, false);
-    if (player && typeof player.stopVideo === 'function') player.stopVideo();
-    return;
-  }
-  
-  // If the player isn't ready, store the data and update the UI (this logic is still perfect).
-  if (!player || typeof player.loadVideoById !== 'function') {
-    console.warn("Player not ready. Storing initial state to sync upon readiness.");
-    initialNowPlayingData = nowPlaying;
+  function syncPlayerState(nowPlaying) {
+    clearInterval(nowPlayingInterval);
+    if (!nowPlaying || !nowPlaying.track) {
+      updateNowPlayingUI(null, false);
+      if (player && typeof player.stopVideo === "function") player.stopVideo();
+      return;
+    }
+    if (!player || typeof player.loadVideoById !== "function") {
+      console.warn(
+        "Player not ready. Storing initial state to sync upon readiness."
+      );
+      initialNowPlayingData = nowPlaying;
+      updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
+      return;
+    }
     updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
-    return;
-  }
-  
-  // Update the visual UI.
-  updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
-
-  const { track, isPlaying, position, serverTimestamp } = nowPlaying;
-  
-  // --> THE FIX: We apply the same predictive logic for the INITIAL load.
-  const latency = Date.now() - serverTimestamp;
-  const correctedPositionInSeconds = (position + latency) / 1000;
-
-  // Load the video and tell it to start at our more accurate, predicted position.
-  player.loadVideoById(track.videoId, correctedPositionInSeconds);
-  
-  if (isPlaying) {
-    if(audioContextUnlocked) {
-       player.playVideo();
-    } else {
-        audioUnlockOverlay.style.display = 'grid';
+    const { track, isPlaying, position, serverTimestamp } = nowPlaying;
+    const latency = Date.now() - serverTimestamp;
+    const correctedPositionInSeconds = (position + latency) / 1000;
+    player.loadVideoById(track.videoId, correctedPositionInSeconds);
+    if (isPlaying) {
+      if (audioContextUnlocked) player.playVideo();
+      else audioUnlockOverlay.style.display = "grid";
     }
   }
-}
-
-  // All other UI update functions (`updatePlaylistUI`, `updateNowPlayingUI`, etc.) remain largely the same
-  // as they just render data, which hasn't changed structure.
 
   function startProgressTimer(startTime, duration_ms) {
     clearInterval(nowPlayingInterval);
@@ -460,13 +423,13 @@ document.addEventListener("DOMContentLoaded", () => {
     totalTimeEl.textContent = formatTime(track.duration_ms);
   }
 
- function updatePlayPauseIcon(isPlaying) {
-  playPauseBtn.innerHTML = isPlaying ? pauseIcon : playIcon;
-  const nowPlayingElement = document.querySelector(".now-playing-hero"); // <-- USE THE CORRECT CLASS
-  if (nowPlayingElement) { // <-- ADD A CHECK TO BE SAFE
-    nowPlayingElement.classList.toggle("is-playing", isPlaying);
+  function updatePlayPauseIcon(isPlaying) {
+    playPauseBtn.innerHTML = isPlaying ? pauseIcon : playIcon;
+    const nowPlayingCard = document.getElementById("now-playing-container");
+    if (nowPlayingCard) {
+      nowPlayingCard.classList.toggle("is-playing", isPlaying);
+    }
   }
-}
 
   function showToast(message, type = "success") {
     const container = document.getElementById("toast-container");
@@ -478,7 +441,7 @@ document.addEventListener("DOMContentLoaded", () => {
       toast.remove();
     }, 4000);
   }
-  // All other helper functions below this line are included for completeness and require no changes.
+
   function renderChatMessage(message) {
     const chatMessages = document.getElementById("chat-messages");
     const msgDiv = document.createElement("div");
@@ -502,6 +465,7 @@ document.addEventListener("DOMContentLoaded", () => {
     chatMessages.appendChild(p);
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
+
   function updateUserListUI(users) {
     const userList = document.getElementById("user-list");
     const userCountDisplay = document.getElementById("user-count-display");
@@ -516,6 +480,7 @@ document.addEventListener("DOMContentLoaded", () => {
       userList.appendChild(userItem);
     });
   }
+
   function updatePlaylistUI({ playlist, nowPlayingIndex }) {
     const queueList = document.getElementById("queue-list");
     queueList.innerHTML = "";
@@ -531,35 +496,57 @@ document.addEventListener("DOMContentLoaded", () => {
         queueItemDiv.classList.add("is-played");
       } else if (index === nowPlayingIndex) {
         queueItemDiv.classList.add("is-playing");
-      } else {
-        queueItemDiv.classList.add("is-upcoming");
       }
       if (isHost) {
         queueItemDiv.classList.add("is-host-clickable");
       }
-      const hostControls = isHost
-        ? ` <div class="playlist-item-controls"> <button class="delete-track-btn" title="Remove from playlist"> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg> </button> </div> `
-        : `<span class="queue-item__duration">${formatTime(
-            item.duration_ms
-          )}</span>`;
-      queueItemDiv.innerHTML = `<span class="queue-item__number">${
-        index + 1
-      }</span> <img src="${item.albumArt || "/placeholder.svg"}" alt="${
+
+      const playIndicator =
+        index === nowPlayingIndex
+          ? "▶"
+          : index < nowPlayingIndex
+          ? "✓"
+          : index + 1;
+
+      queueItemDiv.innerHTML = `
+        <span class="queue-item__number">${playIndicator}</span>
+        <img src="${item.albumArt || "/placeholder.svg"}" alt="${
         item.name
-      }" class="queue-item__art"> <div class="track-info"> <p>${
-        item.name
-      }</p> <p>${item.artist || ""}</p> </div> ${hostControls}`;
+      }" class="queue-item__art">
+        <div class="track-info">
+          <p>${item.name}</p>
+          <p>${item.artist || ""}</p>
+        </div>
+        <span class="queue-item__duration">${formatTime(
+          item.duration_ms
+        )}</span>
+        <div class="playlist-item-controls"></div>`;
+
+      if (isHost) {
+        const controlsContainer = queueItemDiv.querySelector(
+          ".playlist-item-controls"
+        );
+        controlsContainer.innerHTML = `
+          <button class="delete-track-btn" title="Remove from playlist">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
+            </svg>
+          </button>`;
+      }
       queueList.appendChild(queueItemDiv);
     });
+
     if (isHost) {
       queueList.querySelectorAll(".is-host-clickable").forEach((item) => {
         item.addEventListener("click", (e) => {
+          if (e.target.closest(".delete-track-btn")) return;
           const clickedIndex = parseInt(e.currentTarget.dataset.index, 10);
-          if (clickedIndex !== nowPlayingIndex)
+          if (clickedIndex !== nowPlayingIndex) {
             socket.emit("playTrackAtIndex", {
               roomId: currentRoomId,
               index: clickedIndex,
             });
+          }
         });
       });
       queueList.querySelectorAll(".delete-track-btn").forEach((button) => {
@@ -575,9 +562,15 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
   }
+
   function updateSuggestionsUI(suggestions) {
     const suggestionsList = document.getElementById("suggestions-list");
+    const suggestionsCountDisplay = document.getElementById(
+      "suggestions-count-display"
+    );
     suggestionsList.innerHTML = "";
+    suggestionsCountDisplay.textContent = `(${suggestions.length})`;
+
     if (!suggestions || suggestions.length === 0) {
       suggestionsList.innerHTML =
         '<p class="system-message">No suggestions yet</p>';
@@ -588,19 +581,29 @@ document.addEventListener("DOMContentLoaded", () => {
       suggestionDiv.className = "suggestion-item";
       suggestionDiv.dataset.id = item.suggestionId;
       const hostControls = isHost
-        ? ` <div class="suggestion-controls"> <button class="suggestion-approve" title="Approve"> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg> </button> <button class="suggestion-reject" title="Reject"> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg> </button> </div> `
+        ? `<div class="suggestion-controls">
+             <button class="suggestion-approve" title="Approve">
+               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+             </button>
+             <button class="suggestion-reject" title="Reject">
+               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
+             </button>
+           </div>`
         : "";
-      suggestionDiv.innerHTML = ` <img src="${
-        item.albumArt || "/placeholder.svg"
-      }" alt="${
+      suggestionDiv.innerHTML = `
+        <img src="${item.albumArt || "/placeholder.svg"}" alt="${
         item.name
-      }" class="queue-item__art"> <div class="track-info"> <p>${
-        item.name
-      }</p> <p class="suggestion-item__suggester">Suggested by: ${
-        item.suggester.name
-      }</p> </div> ${hostControls} `;
+      }" class="queue-item__art">
+        <div class="track-info">
+          <p>${item.name}</p>
+          <p class="suggestion-item__suggester">by ${
+            item.artist
+          } - suggested by ${item.suggester.name}</p>
+        </div>
+        ${hostControls}`;
       suggestionsList.appendChild(suggestionDiv);
     });
+
     if (isHost) {
       suggestionsList
         .querySelectorAll(".suggestion-approve")
