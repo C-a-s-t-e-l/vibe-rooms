@@ -14,6 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // --> CHANGE: Global player variable for the YouTube Iframe Player
   let player;
   let initialNowPlayingData = null;
+  let lastSeekTimestamp = 0;
 
   // --> NEW: These global functions are REQUIRED by the YouTube API
   // They must be in the global scope, so we define them here.
@@ -175,32 +176,28 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // --> CHANGE: The syncPulse logic is simplified. We trust the host's player state more.
-    socket.on("syncPulse", (data) => {
+   socket.on("syncPulse", (data) => {
   // We don't sync for the host, as they are the source of truth.
   if (isHost || !data || !data.track || !player || typeof player.getPlayerState !== 'function') return;
 
-  // 1. Calculate the estimated server-to-client latency.
   const latency = Date.now() - data.serverTimestamp;
-  
-  // 2. Predict where the host's song *should* be right now, accounting for latency.
   const authoritativePosition = data.position + latency;
-  
-  // 3. Get the guest's current player position.
   const clientPosition = player.getCurrentTime() * 1000;
-
-  // 4. Calculate the difference (the "drift").
   const drift = authoritativePosition - clientPosition;
 
-  // --> THE FIX: We lower the tolerance for seeking.
-  // If we are off by more than 150ms, we force a seek. This is very aggressive.
-  // We also add a check to not seek if the song is just about to end.
-  const trackDuration = player.getDuration() * 1000;
-  if (Math.abs(drift) > 150 && authoritativePosition < (trackDuration - 500)) {
-    console.log(`Syncing guest player. Drift: ${Math.round(drift)}ms. Seeking to corrected position.`);
-    player.seekTo(authoritativePosition / 1000, true);
+  // --> THE FINAL FIX: Add a seek cooldown to prevent jitter.
+  const now = Date.now();
+  // Only allow a seek command to be processed if it's been more than our sync interval (1 sec) since the last one.
+  if (Math.abs(drift) > 150 && (now - lastSeekTimestamp > 1000)) {
+      const trackDuration = player.getDuration() * 1000;
+      if (authoritativePosition < (trackDuration - 500)) {
+          console.log(`Syncing guest player. Drift: ${Math.round(drift)}ms. Seeking.`);
+          player.seekTo(authoritativePosition / 1000, true);
+          lastSeekTimestamp = now; // Update the timestamp after a seek.
+      }
   }
 
-  // 5. Always ensure the play/pause state is correct.
+  // Always ensure the play/pause state is correct.
   const playerState = player.getPlayerState();
   if (data.isPlaying && playerState !== YT.PlayerState.PLAYING) {
     player.playVideo();

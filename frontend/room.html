@@ -9,9 +9,10 @@
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Vibe Room</title>
+    <!-- The ONLY file you need to link is the new room.css -->
     <link rel="stylesheet" href="/room.css" />
     <style>
-      
+      /* Non-layout critical styles from original file, kept for functionality */
       .spinner {
         animation: rotate 2s linear infinite;
         width: 20px;
@@ -41,58 +42,7 @@
           stroke-dashoffset: -124;
         }
       }
-      #audio-unlock-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: hsl(var(--background) / 0.9);
-        color: hsl(var(--foreground));
-        display: grid;
-        place-content: center;
-        z-index: 9999;
-        cursor: pointer;
-        font-size: 1.5rem;
-        backdrop-filter: blur(10px);
-      }
-      .suggestion-item {
-        display: grid;
-        grid-template-columns: 48px 1fr auto;
-        align-items: center;
-        gap: 1rem;
-        padding: 0.5rem;
-        border-radius: var(--radius-sm);
-      }
-      .suggestion-item:hover {
-        background-color: hsl(var(--muted));
-      }
-      .suggestion-item__suggester {
-        font-size: 0.8rem;
-        color: hsl(var(--muted-foreground));
-        margin-top: 0.25rem;
-      }
-      .suggestion-controls {
-        display: flex;
-        gap: 0.5rem;
-      }
-      .suggestion-controls button {
-        background: none;
-        border: none;
-        cursor: pointer;
-        padding: 0.25rem;
-      }
-      .suggestion-controls button svg {
-        width: 20px;
-        height: 20px;
-        display: block;
-      }
-      .suggestion-approve svg {
-        color: hsl(140, 70%, 60%);
-      }
-      .suggestion-reject svg {
-        color: hsl(0, 70%, 60%);
-      }
+
       .is-guest .host-only-form {
         display: none;
       }
@@ -110,17 +60,11 @@
     </style>
   </head>
   <body>
-    <div id="room-background"></div> 
+    <div id="room-background"></div>
     <div id="toast-container"></div>
     <div id="audio-unlock-overlay">
       <h1>Click anywhere to join the vibe...</h1>
     </div>
-
-    <!-- 
-      CHANGE #1: The old <audio> tag is GONE. 
-      It is replaced by this div, which the YouTube Iframe Player will target.
-      It's hidden in the CSS but needs to be in the HTML.
-    -->
     <div id="youtube-player"></div>
 
     <div id="room-view-wrapper">
@@ -166,7 +110,129 @@
       </header>
 
       <div class="room-layout">
-        <!-- Chat Panel (No Changes Here) -->
+        <!-- Music Panel - Redesigned and placed on the left -->
+        <div class="panel music-panel">
+          <div class="now-playing-hero">
+            <div class="album-art-container">
+              <img
+                src="/placeholder.svg"
+                id="now-playing-art"
+                alt="Album Art"
+              />
+            </div>
+            <div class="hero-info-overlay">
+              <div class="track-info">
+                <p id="now-playing-name">Nothing Playing</p>
+                <p id="now-playing-artist">Add a song to start the vibe</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="playback-controls" id="host-controls-wrapper">
+            <div class="time-display">
+              <span id="current-time">0:00</span>
+              <span id="total-time">0:00</span>
+            </div>
+            <div id="progress-bar-container" class="progress-bar-container">
+              <div id="progress-bar" class="progress-bar"></div>
+            </div>
+            <div class="media-controls">
+              <div class="volume-controls">
+                <button class="icon-btn" id="volume-btn">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <path
+                      d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
+                    />
+                  </svg>
+                </button>
+                <input
+                  type="range"
+                  id="volume-slider"
+                  class="volume-slider"
+                  min="0"
+                  max="100"
+                  value="80"
+                />
+              </div>
+              <div class="media-buttons-group">
+                <button class="icon-btn" id="prev-btn">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <path d="M6 18V6h2v12H6m3.5-6L18 6v12l-8.5-6Z" />
+                  </svg>
+                </button>
+                <button class="icon-btn play-btn" id="play-pause-btn">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <path d="M8 5.14v14l11-7-11-7Z" />
+                  </svg>
+                </button>
+                <button class="icon-btn" id="next-btn">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <path d="m6 18 8.5-6L6 6v12zm10-12v12h2V6h-2z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-section queue-section">
+            <h4 class="section-title">Up Next</h4>
+            <div id="queue-list" class="scrollable-list"></div>
+          </div>
+
+          <div class="panel-section suggestions-section">
+            <h4 class="section-title">Suggestions</h4>
+            <div id="suggestions-list" class="scrollable-list"></div>
+          </div>
+
+          <div class="panel-section add-vibe-section">
+            <div id="add-vibe-wrapper">
+              <div class="host-only-form">
+                <h4 class="section-title">Add by Link</h4>
+                <form id="host-link-form" class="link-form">
+                  <input
+                    type="text"
+                    id="host-link-input"
+                    class="link-input-field"
+                    placeholder="Paste YouTube link to add..."
+                    autocomplete="off"
+                  />
+                  <button type="submit" class="form-action-btn">Add</button>
+                </form>
+              </div>
+              <div class="guest-only-form">
+                <h4 class="section-title">Suggest by Link</h4>
+                <form id="guest-link-form" class="link-form">
+                  <input
+                    type="text"
+                    id="guest-link-input"
+                    class="link-input-field"
+                    placeholder="Paste YouTube link to suggest..."
+                    autocomplete="off"
+                  />
+                  <button type="submit" class="form-action-btn">Suggest</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat Panel - Placed on the right -->
         <div class="panel chat-panel">
           <div class="panel-tabs">
             <button class="tab-btn active" data-tab="chat">
@@ -214,172 +280,12 @@
             <div id="user-list" class="user-list"></div>
           </div>
         </div>
-
-        <!-- Music Panel (Minor Changes Here) -->
-        <div class="panel music-panel">
-          <div class="now-playing-section">
-            <div class="panel-header">
-              <span class="status-dot"></span>
-              <h4>Now Playing</h4>
-            </div>
-            <div class="now-playing-card">
-              <div class="album-art-wrapper">
-                <img
-                  src="/placeholder.svg"
-                  id="now-playing-art"
-                  alt="Album Art"
-                />
-              </div>
-              <div class="track-info">
-                <p id="now-playing-name">Nothing Playing</p>
-                <p id="now-playing-artist">Add a song to start the vibe</p>
-              </div>
-            </div>
-            <div class="playback-controls">
-              <div id="host-controls-wrapper">
-                <div class="time-display">
-                  <span id="current-time">0:00</span
-                  ><span id="total-time">0:00</span>
-                </div>
-                <div id="progress-bar-container" class="progress-bar-container">
-                  <div id="progress-bar" class="progress-bar"></div>
-                </div>
-                <div class="media-controls">
-                  <div class="volume-controls">
-                    <button class="icon-btn" id="volume-btn">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                      >
-                        <path
-                          d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
-                        />
-                      </svg>
-                    </button>
-                    <input
-                      type="range"
-                      id="volume-slider"
-                      class="volume-slider"
-                      min="0"
-                      max="100"
-                      value="80"
-                    />
-                  </div>
-                  <div class="media-buttons-group">
-                    <button class="icon-btn" id="prev-btn">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                      >
-                        <path d="M6 18V6h2v12H6m3.5-6L18 6v12l-8.5-6Z" />
-                      </svg>
-                    </button>
-                    <button class="icon-btn play-btn" id="play-pause-btn">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                      >
-                        <path d="M8 5.14v14l11-7-11-7Z" />
-                      </svg>
-                    </button>
-                    <button class="icon-btn" id="next-btn">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                      >
-                        <path d="m6 18 8.5-6L6 6v12zm10-12v12h2V6h-2z" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Queue & Suggestions (No Changes Here) -->
-          <div class="queue-section">
-            <div class="panel-header">
-              <svg
-                class="header-icon"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path
-                  d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2M12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8s8 3.58 8 8s-3.58 8-8 8m.5-13H11v6l5.25 3.15l.75-1.23l-4.5-2.67V7Z"
-                />
-              </svg>
-              <h4>Up Next</h4>
-            </div>
-            <div id="queue-list" class="queue-list"></div>
-          </div>
-          <div class="suggestions-section queue-section">
-            <div class="panel-header">
-              <svg
-                class="header-icon"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path
-                  d="M17 18a2 2 0 0 1-2-2a2 2 0 0 1 2-2a2 2 0 0 1 2 2a2 2 0 0 1-2 2M1 4v2h3.28l1.83 6.13l-1.2.9a2.08 2.08 0 0 0-.13 2.82a2.05 2.05 0 0 0 2.83-.13l.89-.9H16.5a2 2 0 0 0 2-2a2 2 0 0 0-2-2H7.83l-.55-1.87L7.17 10H15.2a2.14 2.14 0 0 0 2.05-1.64l1.6-6.4A2.1 2.1 0 0 0 17.2 0H4.27l-.44-1.5H1ZM17 14a2 2 0 0 0-1.79 1.11L7.5 7.18l-.54-1.87L6.85 5H15.8l-1.6 6.4Z"
-                />
-              </svg>
-              <h4>Suggestions</h4>
-            </div>
-            <div id="suggestions-list" class="queue-list"></div>
-          </div>
-
-          <!-- Add Vibe Section -->
-          <div class="add-vibe-section">
-            <!--
-              CHANGE #2: The entire Search Form has been DELETED from here.
-              We are now only using the "Add by Link" forms.
-            -->
-            <div id="add-vibe-wrapper">
-              <div class="host-only-form">
-                <div class="panel-header"><h4>Add by Link</h4></div>
-                <form id="host-link-form" class="search-form">
-                  <input
-                    type="text"
-                    id="host-link-input"
-                    class="link-input-field"
-                    placeholder="Paste YouTube link here to add..."
-                    autocomplete="off"
-                  />
-                  <button type="submit" class="form-action-btn">Add</button>
-                </form>
-              </div>
-              <div class="guest-only-form">
-                <div class="panel-header"><h4>Suggest by Link</h4></div>
-                <form id="guest-link-form" class="search-form">
-                  <input
-                    type="text"
-                    id="guest-link-input"
-                    class="link-input-field"
-                    placeholder="Paste YouTube link here to suggest..."
-                    autocomplete="off"
-                  />
-                  <button type="submit" class="form-action-btn">Suggest</button>
-                </form>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
 
     <!-- Scripts -->
     <script src="https://vibes-fqic.onrender.com/socket.io/socket.io.js"></script>
     <script src="/room.js"></script>
-    <!-- 
-      CHANGE #3: This new script tag is required.
-      It loads the official YouTube Iframe Player API.
-    -->
     <script>
       var tag = document.createElement("script");
       tag.src = "https://www.youtube.com/iframe_api";
