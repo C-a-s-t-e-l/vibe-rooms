@@ -160,7 +160,7 @@ io.on("connection", (socket) => {
   socket.on("rejectSuggestion", (data) => handleRejectSuggestion(socket, data));
   socket.on("skipTrack", (data) => {
     if (rooms[data.roomId] && socket.user.id === rooms[data.roomId].hostUserId)
-      playNextSong(data.roomId);
+      handleSongEnd(data.roomId);
   });
   socket.on("playPrevTrack", (data) => {
     if (rooms[data.roomId] && socket.user.id === rooms[data.roomId].hostUserId)
