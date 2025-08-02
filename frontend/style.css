@@ -1,10 +1,4 @@
-/* ============================================= */
-/*          VIBE ROOMS - LOBBY STYLES            */
-/* ============================================= */
-
-/* --- 1. Core Variables & Setup --- */
 :root {
-  /* Color Palette */
   --background: 230 35% 7%;
   --foreground: 210 40% 98%;
   --card: 230 30% 9%;
@@ -16,24 +10,38 @@
   --border: 230 20% 18%;
   --radius: 1rem;
   --radius-sm: 0.5rem;
-
-  /* Gradients */
-  --gradient-bg: radial-gradient(ellipse at top, hsl(230 35% 9%) 0%, hsl(230 35% 7%) 100%);
-  --gradient-neon: linear-gradient(135deg, hsl(270 100% 70%) 0%, hsl(320 100% 70%) 50%);
+  --gradient-bg: radial-gradient(
+    ellipse at top,
+    hsl(230 35% 9%) 0%,
+    hsl(230 35% 7%) 100%
+  );
+  --gradient-neon: linear-gradient(
+    135deg,
+    hsl(270 100% 70%) 0%,
+    hsl(320 100% 70%) 50%
+  );
 }
 
-/* --- 2. Keyframes for Animations --- */
 @keyframes gradient-shift {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 15px hsl(var(--primary) / 0.3); }
-  50% { box-shadow: 0 0 25px hsl(var(--primary) / 0.5); }
+  0%,
+  100% {
+    box-shadow: 0 0 15px hsl(var(--primary) / 0.3);
+  }
+  50% {
+    box-shadow: 0 0 25px hsl(var(--primary) / 0.5);
+  }
 }
 
-/* --- 3. Base & Global Styles --- */
 * {
   box-sizing: border-box;
   border-color: hsl(var(--border));
@@ -41,7 +49,8 @@
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
   background: var(--gradient-bg);
   color: hsl(var(--foreground));
   min-height: 100vh;
@@ -68,27 +77,55 @@ body {
   animation: gradient-shift 3s ease-in-out infinite;
 }
 
-/* --- 4. Component Styles --- */
-
-/* Navigation */
 .main-nav {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 1.5rem;
 }
-@media (min-width: 768px) { .main-nav { padding: 2rem; } }
+@media (min-width: 768px) {
+  .main-nav {
+    padding: 2rem;
+  }
+}
 
-.logo-container { display: flex; align-items: center; gap: 0.75rem; }
-.logo-box { width: 2.25rem; height: 2.25rem; background-color: hsl(var(--primary)); border-radius: 0.5rem; font-weight: 700; display: grid; place-content: center; }
-.logo-text { color: white; }
-.logo-title { font-weight: 600; font-size: 1.25rem; }
+.logo-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.logo-box {
+  width: auto;
+  padding: 0 1rem;
+  height: 2.25rem;
+  background-color: hsl(var(--primary));
+  border-radius: 0.5rem;
+  font-weight: 700;
+  display: grid;
+  place-content: center;
+}
+.logo-box span {
+  color: white;
+}
+.logo-title {
+  font-weight: 600;
+  font-size: 1.25rem;
+}
 
-.nav-actions { display: flex; align-items: center; gap: 1rem; }
-.nav-link { color: hsl(var(--muted-foreground)); text-decoration: none; transition: color 0.2s; }
-.nav-link:hover { color: hsl(var(--foreground)); }
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.nav-link {
+  color: hsl(var(--muted-foreground));
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.nav-link:hover {
+  color: hsl(var(--foreground));
+}
 
-/* Buttons */
 .btn {
   padding: 0.75rem 1.5rem;
   border-radius: 9999px;
@@ -100,25 +137,54 @@ body {
   display: inline-block;
   text-align: center;
 }
-.btn:hover { transform: translateY(-2px); }
-.btn:active { transform: translateY(0); }
-.btn-primary { background-color: hsl(var(--primary)); color: white; }
-.btn-primary:hover { filter: brightness(1.2); }
-.btn-secondary { background-color: hsl(var(--secondary)); color: hsl(var(--background)); }
-.btn-secondary:hover { filter: brightness(1.2); }
+.btn:hover {
+  transform: translateY(-2px);
+}
+.btn:active {
+  transform: translateY(0);
+}
+.btn-primary {
+  background-color: hsl(var(--primary));
+  color: white;
+}
+.btn-primary:hover {
+  filter: brightness(1.2);
+}
+.btn-secondary {
+  background-color: hsl(var(--secondary));
+  color: hsl(var(--background));
+}
+.btn-secondary:hover {
+  filter: brightness(1.2);
+}
 
-/* --- RESTORED HERO SECTION --- */
-.hero { text-align: center; padding: 2rem 0 4rem 0; }
-.hero-content { margin-bottom: 2rem; }
-.hero-title { font-size: clamp(3rem, 10vw, 6rem); font-weight: 700; margin: 0 0 1rem 0; }
-.hero-subtitle { font-size: 1.25rem; color: hsl(var(--muted-foreground)); max-width: 42rem; margin: 0 auto; line-height: 1.6; }
-.text-primary { color: hsl(var(--primary)); }
+.hero {
+  text-align: center;
+  padding: 2rem 0 4rem 0;
+}
+.hero-content {
+  margin-bottom: 2rem;
+}
+.hero-title {
+  font-size: clamp(3rem, 10vw, 6rem);
+  font-weight: 700;
+  margin: 0 0 1rem 0;
+}
+.hero-subtitle {
+  font-size: 1.25rem;
+  color: hsl(var(--muted-foreground));
+  max-width: 42rem;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+.text-primary {
+  color: hsl(var(--primary));
+}
 
-/* Main Content Area (Lobby) */
 .rooms-section {
   max-width: 80rem;
   margin: 0 auto;
-  display: none; /* Hidden by default, shown via JS after login */
+  display: none;
 }
 
 .section-header {
@@ -129,8 +195,15 @@ body {
   align-items: center;
   gap: 1rem;
 }
-.section-title { font-size: 2.25rem; font-weight: 700; margin: 0; }
-.section-subtitle { color: hsl(var(--muted-foreground)); margin: 0; }
+.section-title {
+  font-size: 2.25rem;
+  font-weight: 700;
+  margin: 0;
+}
+.section-subtitle {
+  color: hsl(var(--muted-foreground));
+  margin: 0;
+}
 
 .rooms-grid {
   display: grid;
@@ -138,80 +211,94 @@ body {
   gap: 1.5rem;
 }
 
-/* --- REFINED DYNAMIC ROOM CARD (LOBBY) --- */
 .room-card {
-    position: relative;
-    border: 1px solid hsl(var(--border));
-    border-radius: var(--radius);
-    overflow: hidden;
-    cursor: pointer;
-    transition: all 0.3s ease-out;
-    background-color: hsl(var(--card)); 
-    background-size: cover;
-    background-position: center;
+  position: relative;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.3s ease-out;
+  background-color: hsl(var(--card));
+  background-size: cover;
+  background-position: center;
 }
 
 .room-card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    backdrop-filter: blur(15px) brightness(40%);
-    -webkit-backdrop-filter: blur(15px) brightness(40%);
-    z-index: 1;
+  content: "";
+  position: absolute;
+  inset: 0;
+  backdrop-filter: blur(15px) brightness(40%);
+  -webkit-backdrop-filter: blur(15px) brightness(40%);
+  z-index: 1;
 }
 
 .room-card:hover {
-    transform: scale(1.03);
-    box-shadow: 0 10px 30px hsl(0 0% 0% / 0.3);
-    border-color: hsl(var(--primary) / 0.5);
+  transform: scale(1.03);
+  box-shadow: 0 10px 30px hsl(0 0% 0% / 0.3);
+  border-color: hsl(var(--primary) / 0.5);
 }
 
 .room-card .album-art,
 .room-card .room-card-info {
-    position: relative;
-    z-index: 2;
+  position: relative;
+  z-index: 2;
 }
 
 .room-card .album-art {
-    width: 64px;
-    height: 64px;
-    object-fit: cover;
-    border-radius: var(--radius-sm);
-    margin: 1.5rem auto 1rem auto;
-    display: block;
-    box-shadow: 0 5px 15px hsl(0 0% 0% / 0.3);
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  margin: 1.5rem auto 1rem auto;
+  display: block;
+  box-shadow: 0 5px 15px hsl(0 0% 0% / 0.3);
 }
 
 .room-card-info {
-    padding: 0 1.25rem 1.25rem 1.25rem;
-    text-align: center;
+  padding: 0 1.25rem 1.25rem 1.25rem;
+  text-align: center;
 }
 
 .room-card-info .room-name {
-    font-weight: 600;
-    font-size: 1.125rem;
-    margin: 0 0 0.75rem 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: hsl(var(--foreground));
-    text-shadow: 0 1px 3px hsl(0 0% 0% / 0.5);
+  font-weight: 600;
+  font-size: 1.125rem;
+  margin: 0 0 0.75rem 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: hsl(var(--foreground));
+  text-shadow: 0 1px 3px hsl(0 0% 0% / 0.5);
 }
 
 .room-card-footer {
-    display: flex;
-    justify-content: space-around;
-    align-items: center;
-    font-size: 0.875rem;
-    color: hsl(var(--muted-foreground) / 0.9);
-    text-shadow: 0 1px 2px hsl(0 0% 0% / 0.5);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground) / 0.9);
+  text-shadow: 0 1px 2px hsl(0 0% 0% / 0.5);
 }
 
-.room-listeners { display: flex; align-items: center; gap: 0.5rem; }
-.status-indicator { display: flex; align-items: center; gap: 0.5rem; color: hsl(var(--primary)); font-weight: 500; }
-.status-dot { width: 0.5rem; height: 0.5rem; background-color: hsl(var(--primary)); border-radius: 9999px; animation: pulse-glow 2s ease-in-out infinite; }
+.room-listeners {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: hsl(var(--primary));
+  font-weight: 500;
+}
+.status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  background-color: hsl(var(--primary));
+  border-radius: 9999px;
+  animation: pulse-glow 2s ease-in-out infinite;
+}
 
-/* Footer */
 .main-footer {
   text-align: center;
   margin-top: 5rem;
@@ -219,7 +306,6 @@ body {
   color: hsl(var(--muted-foreground));
 }
 
-/* --- Create Room Modal Styles --- */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -332,7 +418,6 @@ body {
   padding: 1rem;
 }
 
-/* --- RESPONSIVE STYLES --- */
 @media (max-width: 768px) {
   .container {
     padding-left: 1rem;

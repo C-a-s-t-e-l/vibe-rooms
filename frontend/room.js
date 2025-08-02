@@ -1,5 +1,3 @@
-// frontend/room.js
-
 document.addEventListener("DOMContentLoaded", () => {
   const BACKEND_URL = "https://vibes-fqic.onrender.com";
   const userToken = localStorage.getItem("vibe_token");
@@ -8,10 +6,9 @@ document.addEventListener("DOMContentLoaded", () => {
   volumeSlider.value = savedVolume;
 
   if (!userToken) {
+    const intendedDestination = window.location.pathname;
+    localStorage.setItem("redirect_after_login", intendedDestination);
 
-     const intendedDestination = window.location.pathname;
-    localStorage.setItem('redirect_after_login', intendedDestination);
-    
     window.location.href = "/";
     return;
   }
@@ -35,7 +32,6 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   function onPlayerReady(event) {
-    console.log("Player is ready to be controlled.");
     player.setVolume(volumeSlider.value);
     if (!isHost) {
       socket.emit("requestPerfectSync", { roomId: currentRoomId });
@@ -75,43 +71,33 @@ document.addEventListener("DOMContentLoaded", () => {
   const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
 
   function unlockAudio() {
-  if (audioContextUnlocked) return;
-  audioContextUnlocked = true;
-  audioUnlockOverlay.style.display = "none";
+    if (audioContextUnlocked) return;
+    audioContextUnlocked = true;
+    audioUnlockOverlay.style.display = "none";
 
-  if (player && typeof player.playVideo === 'function') {
-    // --- START OF CROSS-BROWSER COMPATIBILITY FIX ---
-    
-    // 1. Prime the player to satisfy browser autoplay policies (especially Safari).
-    // We mute, play for a tiny moment, then pause.
-    const currentVolume = player.getVolume();
-    player.mute();
-    player.playVideo();
+    if (player && typeof player.playVideo === "function") {
+      // This is a sacred ritual to appease the Safari and mobile browser gods.
+      // Mercy, please.
+      const currentVolume = player.getVolume();
+      player.mute();
+      player.playVideo();
 
-    // After a very short delay, pause it and restore the volume.
-    // This action is "blessed" by the user's click and unlocks programmatic playback.
-    setTimeout(() => {
+      setTimeout(() => {
         player.pauseVideo();
         player.setVolume(currentVolume);
         player.unMute();
 
-        // 2. Now, run the original logic to sync to the actual song state.
         const shouldBePlaying =
-            (currentPlaylistState && currentPlaylistState.isPlaying) ||
-            (initialNowPlayingData && initialNowPlayingData.isPlaying);
+          (currentPlaylistState && currentPlaylistState.isPlaying) ||
+          (initialNowPlayingData && initialNowPlayingData.isPlaying);
 
         if (shouldBePlaying) {
-            console.log(
-                "Audio unlocked and song should be playing. Issuing play command."
-            );
-            // This second playVideo call now has a much higher chance of working.
-            player.playVideo();
+          // Okay, ritual complete. Now PLES please plEeeeEEsaaeaseaseaseae. Gumana ka na pls.
+          player.playVideo();
         }
-
-    }, 150); // 150ms is enough to register the play but is imperceptible to the user.
-    // --- END OF CROSS-BROWSER COMPATIBILITY FIX ---
+      }, 150);
+    }
   }
-}
 
   audioUnlockOverlay.addEventListener("click", unlockAudio);
   setupSocketListeners();
@@ -190,52 +176,40 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     socket.on("syncPulse", (data) => {
-  // FIX 1: The host is the source of truth and should not sync to its own pulse.
-  if (isHost) {
-    return;
-  }
+      if (isHost) {
+        return;
+      }
 
-  // Guard clause to ensure we have all the data and the player is ready.
-  if (
-    !data ||
-    !data.track ||
-    !player ||
-    typeof player.getPlayerState !== "function"
-  ) {
-    return;
-  }
+      if (
+        !data ||
+        !data.track ||
+        !player ||
+        typeof player.getPlayerState !== "function"
+      ) {
+        return;
+      }
 
-  // --- Play/Pause State Correction ---
-  // This ensures a listener's player is in the correct play/pause state.
-  const playerState = player.getPlayerState();
-  if (data.isPlaying && playerState !== YT.PlayerState.PLAYING) {
-    player.playVideo();
-  } else if (!data.isPlaying && playerState === YT.PlayerState.PLAYING) {
-    player.pauseVideo();
-  }
+      const playerState = player.getPlayerState();
+      if (data.isPlaying && playerState !== YT.PlayerState.PLAYING) {
+        player.playVideo();
+      } else if (!data.isPlaying && playerState === YT.PlayerState.PLAYING) {
+        player.pauseVideo();
+      }
 
-  // --- Position Drift Correction ---
-  // This section only runs if the track is supposed to be playing.
-  if (data.isPlaying) {
-    // Calculate the server's authoritative position, accounting for network latency.
-    const latency = Date.now() - data.serverTimestamp;
-    const authoritativePosition = data.position + latency;
+      if (data.isPlaying) {
+        // Ang hirap ng math na to para lang sa music TAPOS DI GAGANA!?.
+        const latency = Date.now() - data.serverTimestamp;
+        const authoritativePosition = data.position + latency;
+        const clientPosition = player.getCurrentTime() * 1000;
+        const drift = authoritativePosition - clientPosition;
+        const now = Date.now();
 
-    // Get the client's current position.
-    const clientPosition = player.getCurrentTime() * 1000;
-
-    // Calculate the difference (the drift).
-    const drift = authoritativePosition - clientPosition;
-
-    const now = Date.now();
-
-    // FIX 2: If the drift is more than 500ms, and we haven't seeked recently, correct the player's position.
-    if (Math.abs(drift) > 500 && now - lastSeekTimestamp > 2000) {
-      player.seekTo(authoritativePosition / 1000, true);
-      lastSeekTimestamp = now; // Update the timestamp to prevent rapid seeks.
-    }
-  }
-});
+        if (Math.abs(drift) > 500 && now - lastSeekTimestamp > 2000) {
+          player.seekTo(authoritativePosition / 1000, true);
+          lastSeekTimestamp = now;
+        }
+      }
+    });
 
     socket.on("hostAssigned", () => {
       isHost = true;
@@ -273,13 +247,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function setupUIEventListeners() {
     playPauseBtn.addEventListener("click", () => {
-      if (!isHost || !player || typeof player.getPlayerState !== "function")
-        return;
-      const playerState = player.getPlayerState();
-      
-       socket.emit("hostPlaybackChange", {
+      if (!isHost || !player) return;
+
+      socket.emit("hostPlaybackChange", {
         roomId: currentRoomId,
-        isPlaying: !currentPlaylistState.isPlaying, // <-- CHANGE THIS LINE
+        isPlaying: !currentPlaylistState.isPlaying,
       });
     });
 
@@ -356,74 +328,69 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // THIS IS THE MOST IMPORTANT CLIENT-SIDE FIX
-function syncPlayerState(nowPlaying) {
-  clearInterval(nowPlayingInterval);
+  // Work, so I can eat.
+  function syncPlayerState(nowPlaying) {
+    clearInterval(nowPlayingInterval);
 
-  if (!nowPlaying || !nowPlaying.track) {
-    updateNowPlayingUI(null, false);
-    if (player && typeof player.stopVideo === "function") player.stopVideo();
-    return;
-  }
+    if (!nowPlaying || !nowPlaying.track) {
+      updateNowPlayingUI(null, false);
+      if (player && typeof player.stopVideo === "function") player.stopVideo();
+      return;
+    }
 
-  if (!player || typeof player.loadVideoById !== "function") {
-    initialNowPlayingData = nowPlaying;
+    if (!player || typeof player.loadVideoById !== "function") {
+      initialNowPlayingData = nowPlaying;
+      updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
+      return;
+    }
+
     updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
-    return;
-  }
 
-  updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
+    const { track, isPlaying, position, serverTimestamp, startTime } =
+      nowPlaying;
 
-  const { track, isPlaying, position, serverTimestamp, startTime } = nowPlaying;
+    const latency = Date.now() - serverTimestamp;
+    const correctedPositionInSeconds = (position + latency) / 1000;
 
-  const latency = Date.now() - serverTimestamp;
-  const correctedPositionInSeconds = (position + latency) / 1000;
+    const currentVideoUrl = player.getVideoUrl();
+    const currentPlayerVideoId = currentVideoUrl
+      ? (currentVideoUrl.match(/v=([^&]+)/) || [])[1]
+      : null;
 
-  const currentVideoUrl = player.getVideoUrl();
-  const currentPlayerVideoId = currentVideoUrl
-    ? (currentVideoUrl.match(/v=([^&]+)/) || [])[1]
-    : null;
+    const isNewVideo = currentPlayerVideoId !== track.videoId;
 
-  // --- START OF THE FIX for smooth transitions ---
-  const isNewVideo = currentPlayerVideoId !== track.videoId;
-
-  if (isNewVideo) {
-    // When it's a new video, just load it. Don't try to play it yet.
-    // The syncPulse will handle the play command smoothly in a moment.
-    player.loadVideoById({
-      videoId: track.videoId,
-      startSeconds: correctedPositionInSeconds,
-    });
-  } else {
-    // If it's the same video, we can safely sync it.
-    const clientTime = player.getCurrentTime();
-    if (Math.abs(clientTime - correctedPositionInSeconds) > 1.5) {
-      player.seekTo(correctedPositionInSeconds, true);
+    if (isNewVideo) {
+      // please just load
+      player.loadVideoById({
+        videoId: track.videoId,
+        startSeconds: correctedPositionInSeconds,
+      });
+    } else {
+      const clientTime = player.getCurrentTime();
+      if (Math.abs(clientTime - correctedPositionInSeconds) > 1.5) {
+        player.seekTo(correctedPositionInSeconds, true);
+      }
     }
-  }
 
-  if (isPlaying) {
-    startProgressTimer(startTime, track.duration_ms);
-    // Only issue an immediate play command if it's NOT a new video.
-    // This prevents the initial stutter.
-    if (!isNewVideo) {
+    if (isPlaying) {
+      startProgressTimer(startTime, track.duration_ms);
+      if (!isNewVideo) {
         if (audioContextUnlocked) {
-            player.playVideo();
+          player.playVideo();
         } else {
-            audioUnlockOverlay.style.display = "grid";
+          audioUnlockOverlay.style.display = "grid";
         }
+      }
+    } else {
+      const progressPercent = (position / track.duration_ms) * 100;
+      document.getElementById(
+        "progress-bar"
+      ).style.width = `${progressPercent}%`;
+      document.getElementById("current-time").textContent =
+        formatTime(position);
+      player.pauseVideo();
     }
-  } else {
-    // If paused, ensure the client is paused.
-    const progressPercent = (position / track.duration_ms) * 100;
-    document.getElementById(
-      "progress-bar"
-    ).style.width = `${progressPercent}%`;
-    document.getElementById("current-time").textContent = formatTime(position);
-    player.pauseVideo();
   }
-  // --- END OF THE FIX ---
-}
 
   function startProgressTimer(startTime, duration_ms) {
     clearInterval(nowPlayingInterval);

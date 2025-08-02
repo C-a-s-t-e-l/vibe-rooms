@@ -13,7 +13,6 @@
   --radius-lg: 1.5rem;
 }
 
-/* --- BASE & GLOBAL STYLES --- */
 * {
   box-sizing: border-box;
 }
@@ -25,7 +24,6 @@ body {
   overflow-x: hidden;
 }
 
-/* --- BACKGROUND & OVERLAYS --- */
 #room-background {
   position: fixed;
   top: 0;
@@ -71,7 +69,6 @@ body {
   text-align: center;
 }
 
-/* --- CORE LAYOUT --- */
 #room-view-wrapper {
   display: flex;
   flex-direction: column;
@@ -86,7 +83,6 @@ body {
   min-height: 0;
 }
 
-/* --- HEADER --- */
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -149,7 +145,6 @@ body {
   height: 1.25rem;
 }
 
-/* --- PANELS & SHARED COMPONENTS --- */
 .panel {
   background: hsl(var(--panel-bg) / 0.7);
   border: 1px solid hsl(var(--border));
@@ -186,7 +181,6 @@ body {
   border-radius: 10px;
 }
 
-/* ================== MUSIC PANEL (REBALANCED) ================== */
 .music-panel {
   padding: 1.5rem;
   gap: 1.5rem;
@@ -333,7 +327,6 @@ body {
 .queue-item {
   position: relative;
   display: grid;
-  /* This new layout gives space for the duration (50px) and the host controls (auto) */
   grid-template-columns: 20px 40px 1fr 50px auto;
   align-items: center;
   gap: 0.75rem;
@@ -360,7 +353,7 @@ body {
 }
 
 .queue-item .track-info {
-  min-width: 0; /* Prevents long text from breaking the grid */
+  min-width: 0;
 }
 
 .queue-item .track-info p {
@@ -378,15 +371,15 @@ body {
 
 .playlist-item-controls {
   display: flex;
-  justify-content: flex-end; /* Aligns delete button to the right edge */
+  justify-content: flex-end;
   align-items: center;
 }
 
 .queue-item__duration {
   font-size: 0.8rem;
   color: hsl(var(--muted-foreground));
-  text-align: right; /* Aligns the time to the right */
-  padding-right: 0.5rem; /* Adds some space between time and delete button */
+  text-align: right;
+  padding-right: 0.5rem;
 }
 
 .queue-item.is-playing {
@@ -412,10 +405,8 @@ body {
   cursor: pointer;
   border-radius: 50%;
   color: hsl(var(--muted-foreground));
-  /* No longer hidden by default, as it only exists for hosts */
   transition: opacity 0.2s, background-color 0.2s;
 }
-/* This can be simplified or removed, but keeping it is fine for hover feedback */
 .delete-track-btn:hover {
   background-color: hsl(var(--muted));
   color: hsl(var(--destructive));
@@ -425,9 +416,6 @@ body {
   height: 16px;
   display: block;
 }
-/* .is-host-clickable .queue-item__duration {
-  display: none;
-} */
 
 .add-vibe-section {
   flex-shrink: 0;
@@ -459,10 +447,8 @@ body {
   filter: brightness(1.2);
 }
 
-/* ================== SOCIAL PANEL (IMPROVED & COMPACT) ================== */
 .social-panel {
   padding: 0;
-  /* Add flexbox to solve the mobile chat overflow issue */
   display: flex;
   flex-direction: column;
 }
@@ -511,10 +497,8 @@ body {
 .tab-content {
   display: none;
   flex-direction: column;
-  /* Reduced padding and gap for a tighter feel */
-  padding: 1rem; /* CHANGED from 1.5rem */
-  gap: 1rem;     /* CHANGED from 1.5rem */
-  /* Flexbox rules to ensure proper scrolling */
+  padding: 1rem;
+  gap: 1rem;
   flex-grow: 1;
   min-height: 0;
 }
@@ -527,21 +511,18 @@ body {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
-  /* This is the biggest change: reduced the space between messages */
-  gap: 0.75rem; /* CHANGED from 1.5rem */
-  overflow-y: auto; /* Ensure scrolling is enabled */
+  gap: 0.75rem;
+  overflow-y: auto;
 }
 
 .chat-message {
   display: flex;
-  /* Reduced space between avatar and text */
-  gap: 0.75rem; /* CHANGED from 1rem */
+  gap: 0.75rem;
 }
 
 .chat-message__avatar {
-  /* Made the avatar slightly smaller */
-  width: 36px;   /* CHANGED from 40px */
-  height: 36px;  /* CHANGED from 40px */
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
@@ -564,8 +545,7 @@ body {
 }
 
 .chat-message__text {
-  /* Reduced line-height to make multi-line messages more compact */
-  line-height: 1.4; /* CHANGED from 1.5 */
+  line-height: 1.4;
   word-break: break-word;
 }
 
@@ -574,7 +554,6 @@ body {
   text-align: center;
   color: hsl(var(--muted-foreground));
   font-style: italic;
-  /* Added a bit of spacing for system messages to stand out */
   padding: 0.25rem 0;
 }
 
@@ -684,7 +663,6 @@ body {
   color: hsl(0, 70%, 60%);
 }
 
-/* ================== TOAST & RESPONSIVE ================== */
 #toast-container {
   position: fixed;
   top: 1.5rem;
@@ -710,13 +688,12 @@ body {
 }
 
 .queue-section .system-message {
-  margin: auto; 
+  margin: auto;
 }
 
 .is-guest .host-only-controls {
   display: none;
 }
-/* Make progress bar non-interactive for guests */
 .is-guest .progress-bar-container {
   cursor: default;
   pointer-events: none;
@@ -762,62 +739,48 @@ body {
 }
 
 @media (max-width: 768px) {
-  
-  /* --- FIX 1: Make the Chat Input and Button fit on one line --- */
-  
   .chat-form {
-    /* Reduce the space between the input and the button */
-    gap: 0.5rem; 
+    gap: 0.5rem;
   }
 
   #chat-input {
-    /* Slightly reduce the padding to give the button more space */
     padding: 0.75rem 0.8rem;
   }
-  
+
   #send-btn {
-    /* This is the key fix for the button overflow. */
-    /* Remove text and only show an icon on mobile. */
-    font-size: 0; /* Hides the "Send" text */
-    width: 48px;  /* Gives the button a fixed, square-like width */
-    height: 48px; /* Matches the input field height */
-    padding: 0;   /* Removes any extra padding */
-    flex-shrink: 0; /* Prevents the button from being squished */
-    
-    /* Center the icon inside the button */
+    font-size: 0;
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    flex-shrink: 0;
+
     display: flex;
     align-items: center;
     justify-content: center;
   }
 
-  /* Add an SVG icon inside the button */
   #send-btn::before {
-    content: '';
+    content: "";
     display: block;
     width: 24px;
     height: 24px;
-    background-color: white; /* Icon color */
+    background-color: white;
     -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor'%3E%3Cpath d='M2.01 21L23 12 2.01 3 2 10l15 2-15 2z'/%3E%3C/svg%3E");
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor'%3E%3Cpath d='M2.01 21L23 12 2.01 3 2 10l15 2-15 2z'/%3E%3C/svg%3E");
     mask-repeat: no-repeat;
     mask-position: center;
   }
 
-  /* --- FIX 2: Make the Chat Messages more compact on mobile --- */
-  
   #chat-messages {
-    /* Further reduce the gap between messages for mobile */
     gap: 0.5rem;
   }
 
   .chat-message__avatar {
-    /* Make avatars even smaller on mobile */
     width: 32px;
     height: 32px;
   }
-  
+
   .chat-message__text {
-    /* Reduce the font size of the message text itself */
     font-size: 0.9rem;
   }
 }
@@ -839,9 +802,6 @@ body {
   .tab-content {
     padding: 1rem;
   }
-  .tab-content{
-    max-height: 600px;
-  }
   .panel-tabs {
     padding: 0.5rem;
     overflow-x: auto;
@@ -852,4 +812,3 @@ body {
     display: none;
   }
 }
-

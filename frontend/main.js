@@ -1,9 +1,6 @@
-// frontend/main.js
-
 document.addEventListener("DOMContentLoaded", () => {
   const BACKEND_URL = "https://vibes-fqic.onrender.com";
 
-  // --- Core DOM Elements ---
   const navActions = document.querySelector(".nav-actions");
   const loggedOutView = document.getElementById("logged-out-view");
   const loggedInView = document.getElementById("logged-in-view");
@@ -21,112 +18,93 @@ document.addEventListener("DOMContentLoaded", () => {
   const customVibeInput = document.getElementById("custom-vibe-input");
   const modalCreateBtn = document.getElementById("modal-create-btn");
 
-  // --- JWT AUTHENTICATION FLOW ---
-
-  // 1. Check for a token in the URL query parameters (from Google OAuth redirect).
-    const urlParams = new URLSearchParams(window.location.search);
-  const tokenFromUrl = urlParams.get('token');
-  const redirectFromUrl = urlParams.get('redirect');
+  const urlParams = new URLSearchParams(window.location.search);
+  const tokenFromUrl = urlParams.get("token");
+  const redirectFromUrl = urlParams.get("redirect");
 
   if (tokenFromUrl) {
-    localStorage.setItem('vibe_token', tokenFromUrl);
-    // We are now logged in.
-    
-    // Clear the redirect path from localStorage, as we've successfully used it.
-    localStorage.removeItem('redirect_after_login');
-    
+    localStorage.setItem("vibe_token", tokenFromUrl);
+
+    // Mission accomplished. Now get out of here.
+    localStorage.removeItem("redirect_after_login");
+
     if (redirectFromUrl) {
-      // If a redirect URL is present, GO THERE IMMEDIATELY.
+      // User has a special destination. To the Bat-room brrrrrrrrrrrrrrrrr!
       window.location.href = redirectFromUrl;
-      return; // Stop executing the rest of the main.js script.
+      return;
     } else {
-      // If no redirect, just clean the URL and stay on the homepage.
       window.history.replaceState({}, document.title, "/");
     }
   }
 
-  // 2. Retrieve the token from localStorage.
-  const userToken = localStorage.getItem('vibe_token');
+  const userToken = localStorage.getItem("vibe_token");
 
   if (userToken) {
-    // 3. If a token exists, try to fetch the user's profile.
+    // Legit o legit?
     fetch(`${BACKEND_URL}/api/user`, {
       headers: {
-        // Include the token in the Authorization header.
-        'Authorization': `Bearer ${userToken}`
-      }
+        Authorization: `Bearer ${userToken}`,
+      },
     })
-    .then(res => {
+      .then((res) => {
         if (!res.ok) {
-            // If the token is invalid or expired, clear it and reject the promise.
-            localStorage.removeItem('vibe_token');
-            return Promise.reject("Not authenticated");
+          localStorage.removeItem("vibe_token");
+          // brrrrrrrrrrrrrrrrrr-asura
+          return Promise.reject("Not authenticated");
         }
         return res.json();
-    })
-    .then(user => {
+      })
+      .then((user) => {
         if (user && user.id) {
-            // If user is successfully fetched, set up the logged-in UI.
-            setupLoggedInUI(user, userToken);
+          setupLoggedInUI(user, userToken);
         }
-    })
-    .catch(() => {
-        // If fetch fails for any reason, show the logged-out view.
+      })
+      .catch(() => {
         loggedOutView.style.display = "block";
         loggedInView.style.display = "none";
-    });
+      });
   } else {
-      loggedOutView.style.display = "block";
+    loggedOutView.style.display = "block";
     loggedInView.style.display = "none";
-    
-    // --- THIS IS THE FIX ---
-    // Check for a saved redirect path in localStorage.
-    const redirectPath = localStorage.getItem('redirect_after_login');
+
+    const redirectPath = localStorage.getItem("redirect_after_login");
     let googleAuthUrl = `${BACKEND_URL}/auth/google`;
 
     if (redirectPath) {
-      // If a path exists, encode it and append it to the auth URL.
+      
       googleAuthUrl += `?redirect=${encodeURIComponent(redirectPath)}`;
     }
 
-    // Find the login button and set its href dynamically.
-    const loginButton = loggedOutView.querySelector('.btn-primary');
+    const loginButton = document.getElementById("google-login-btn");
     if (loginButton) {
       loginButton.href = googleAuthUrl;
     }
   }
 
-
-  // This function is now only called AFTER a user is successfully authenticated via JWT.
   function setupLoggedInUI(user, token) {
     loggedOutView.style.display = "none";
     loggedInView.style.display = "block";
 
-    // The logout link needs to be handled by the frontend now to clear the token
     navActions.innerHTML = `
         <p class="nav-link">Welcome, ${user.displayName}!</p>
         <button id="logout-btn" class="btn btn-secondary">Log Out</button>
     `;
 
-    document.getElementById('logout-btn').addEventListener('click', () => {
-        localStorage.removeItem('vibe_token');
-        window.location.href = '/'; // Redirect to home page
+    document.getElementById("logout-btn").addEventListener("click", () => {
+      localStorage.removeItem("vibe_token");
+      window.location.href = "/";
     });
 
-    // --- SOCKET.IO CONNECTION WITH JWT ---
     const socket = io(BACKEND_URL, {
-        auth: {
-            token: token // Send the JWT for socket authentication
-        }
+      auth: {
+        token: token,
+      },
     });
-
-    // --- ALL LOGGED-IN LOGIC NOW LIVES INSIDE THIS FUNCTION SCOPE ---
 
     let selectedVibe = null;
     let allRooms = [];
     let currentFilter = "All";
 
-    // --- Modal Functions ---
     function showModal() {
       modalOverlay.style.display = "flex";
       setTimeout(() => modalOverlay.classList.add("visible"), 10);
@@ -143,7 +121,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }, 300);
     }
 
-    // --- Lobby Rendering & Filtering ---
     function renderVibeTags(vibes) {
       const container = document.getElementById("vibe-tag-cloud");
       if (!container) return;
@@ -190,23 +167,23 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function updateRoomsList(rooms) {
-        if (!roomsGrid) return;
-        roomsGrid.innerHTML = "";
-        if (rooms.length === 0) {
-            noRoomsMessage.style.display = "block";
-        } else {
-            noRoomsMessage.style.display = "none";
-            rooms.forEach((room) => {
-                const roomCard = document.createElement("div");
-                roomCard.className = "room-card";
-                const albumArtUrl =
-                    room.nowPlaying && room.nowPlaying.track
-                        ? room.nowPlaying.track.albumArt
-                        : "/placeholder.svg";
-                if (room.nowPlaying && room.nowPlaying.track) {
-                    roomCard.style.backgroundImage = `url(${albumArtUrl})`;
-                }
-                roomCard.innerHTML = `
+      if (!roomsGrid) return;
+      roomsGrid.innerHTML = "";
+      if (rooms.length === 0) {
+        noRoomsMessage.style.display = "block";
+      } else {
+        noRoomsMessage.style.display = "none";
+        rooms.forEach((room) => {
+          const roomCard = document.createElement("div");
+          roomCard.className = "room-card";
+          const albumArtUrl =
+            room.nowPlaying && room.nowPlaying.track
+              ? room.nowPlaying.track.albumArt
+              : "/placeholder.svg";
+          if (room.nowPlaying && room.nowPlaying.track) {
+            roomCard.style.backgroundImage = `url(${albumArtUrl})`;
+          }
+          roomCard.innerHTML = `
                     <img src="${albumArtUrl}" alt="${room.name}" class="album-art"/>
                     <div class="room-card-info">
                         <h3 class="room-name">${room.name}</h3>
@@ -221,17 +198,14 @@ document.addEventListener("DOMContentLoaded", () => {
                         </div>
                     </div>
                 `;
-                roomCard.addEventListener("click", () => {
-                    window.location.href = `/room/${room.slug}`;
-                });
-                roomsGrid.appendChild(roomCard);
-            });
-        }
+          roomCard.addEventListener("click", () => {
+            window.location.href = `/room/${room.slug}`;
+          });
+          roomsGrid.appendChild(roomCard);
+        });
+      }
     }
 
-    // --- Attach all Event Listeners for Logged-In state ---
-
-    // Modal Listeners
     createRoomBtn.addEventListener("click", showModal);
     closeModalBtn.addEventListener("click", hideModal);
     modalOverlay.addEventListener("click", (e) => {
@@ -264,17 +238,15 @@ document.addEventListener("DOMContentLoaded", () => {
       hideModal();
     });
 
-    // Socket Listeners
     socket.on("updateLobby", ({ rooms, vibes }) => {
       allRooms = rooms;
       renderVibeTags(vibes);
       renderFilteredRooms();
     });
     socket.on("roomCreated", ({ slug }) => {
-        window.location.href = `/room/${slug}`;
+      window.location.href = `/room/${slug}`;
     });
 
-    // Initial fetch of rooms
     socket.emit("getRooms");
   }
 });

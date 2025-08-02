@@ -2,23 +2,31 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
+    <title>VIBES - Social Music Listening</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Discover and share music in real-time with curated vibe rooms. Join a listening party or create your own!">
-    <title>Vibe Rooms - Social Music Listening</title>
     <link rel="icon" type="image/x-icon" href="https://cdn-icons-png.flaticon.com/512/11563/11563315.png">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vibe Rooms</title>
-     <link rel="stylesheet" href="/style.css">
+    
+    <meta property="og:title" content="VIBES - Social Music Listening" />
+    <meta property="og:description" content="Discover and share music in real-time. Join a listening party or create your own!" />
+    <meta property="og:image" content="https://www.svgrepo.com/show/520059/vibe-music.svg" />
+    <meta property="og:url" content="https://vibe-rooms-five.vercel.app" />
+    <meta property="og:type" content="website" />
+    
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="VIBES - Social Music Listening" />
+    <meta name="twitter:description" content="Discover and share music in real-time. Join a listening party or create your own!" />
+    <meta name="twitter:image" content="https://www.svgrepo.com/show/520059/vibe-music.svg" />
+
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <div id="app-wrapper">
         <nav class="main-nav">
             <div class="logo-container">
-                <div class="logo-box"><span>VR</span></div>
-                <span class="logo-title">Vibe Rooms</span>
+                <div class="logo-box"><span>VIBES</span></div>
             </div>
             <div class="nav-actions">
-                <!-- This will be dynamically filled by main.js -->
             </div>
         </nav>
 
@@ -26,7 +34,7 @@
             <div id="logged-out-view">
                 <section class="hero">
                     <div class="hero-content">
-                        <h1 class="hero-title glow-text">Vibe Rooms</h1>
+                        <h1 class="hero-title glow-text">VIBES</h1>
                         <p class="hero-subtitle">
                             Discover and share music in cozy Filipino vibes. 
                             <br />
@@ -70,7 +78,6 @@
     <div class="form-group">
       <label>Choose a Preset Vibe</label>
       <div id="preset-vibes-container" class="vibe-tags-container">
-        <!-- Preset vibes will be added here by JS, but we can have static ones for now -->
         <button class="vibe-tag" data-vibe-name="OPM Throwback">OPM Throwback</button>
         <button class="vibe-tag" data-vibe-name="Pang-Sawi / Marupok">Pang-Sawi / Marupok</button>
         <button class="vibe-tag" data-vibe-name="Study & Chill">Study & Chill</button>

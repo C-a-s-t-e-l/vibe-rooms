@@ -2,62 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <title>Vibe Room</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="You've been invited to a VIBES listening party. Join the room to listen to music in real-time with friends!">
     <link
       rel="icon"
       type="image/x-icon"
       href="https://cdn-icons-png.flaticon.com/512/11563/11563315.png"
     />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vibe Room</title>
-    <link rel="stylesheet" href="/room.css" />
-    <style>
-      /* Non-layout critical styles from original file, kept for functionality */
-      .spinner {
-        animation: rotate 2s linear infinite;
-        width: 20px;
-        height: 20px;
-      }
-      .spinner .path {
-        stroke: hsl(var(--primary));
-        stroke-linecap: round;
-        animation: dash 1.5s ease-in-out infinite;
-      }
-      @keyframes rotate {
-        100% {
-          transform: rotate(360deg);
-        }
-      }
-      @keyframes dash {
-        0% {
-          stroke-dasharray: 1, 150;
-          stroke-dashoffset: 0;
-        }
-        50% {
-          stroke-dasharray: 90, 150;
-          stroke-dashoffset: -35;
-        }
-        100% {
-          stroke-dasharray: 90, 150;
-          stroke-dashoffset: -124;
-        }
-      }
+    
+    <meta property="og:title" content="You're invited to a Vibe!" />
+    <meta property="og:description" content="Join the room to listen to music in real-time with friends." />
+    <meta property="og:image" content="https://www.svgrepo.com/show/520059/vibe-music.svg" />
+    <meta property="og:type" content="website" />
+    
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="You're invited to a Vibe!" />
+    <meta name="twitter:description" content="Join the room to listen to music in real-time with friends." />
+    <meta name="twitter:image" content="https://www.svgrepo.com/show/520059/vibe-music.svg" />
 
-      /* These classes are controlled by JS to show/hide the correct link input form */
-      .is-guest .host-only-form {
-        display: none;
-      }
-      .is-host .guest-only-form {
-        display: none;
-      }
-      .host-only-form,
-      .guest-only-form {
-        display: none;
-      }
-      .is-host .host-only-form,
-      .is-guest .guest-only-form {
-        display: block;
-      }
-    </style>
+    <link rel="stylesheet" href="/room.css" />
   </head>
   <body>
     <div id="room-background"></div>
@@ -112,7 +76,6 @@
       </header>
 
       <div class="room-layout">
-        <!-- Music Panel -->
         <div class="panel music-panel">
           <div id="now-playing-container" class="now-playing-card">
             <img
@@ -127,7 +90,6 @@
             </div>
           </div>
           <div class="playback-controls" id="host-controls-wrapper">
-            <!-- This section is now visible to everyone -->
             <div class="time-display">
               <span id="current-time">0:00</span>
               <span id="total-time">0:00</span>
@@ -135,8 +97,6 @@
             <div id="progress-bar-container" class="progress-bar-container">
               <div id="progress-bar" class="progress-bar"></div>
             </div>
-
-            <!-- This section contains controls -->
             <div class="media-controls">
               <div class="volume-controls">
                 <button class="icon-btn" id="volume-btn">
@@ -160,7 +120,6 @@
                 />
               </div>
 
-              <!-- This div wraps ONLY the host buttons -->
               <div class="host-only-controls">
                 <div class="media-buttons-group">
                   <button class="icon-btn" id="prev-btn">
@@ -197,7 +156,6 @@
           <div class="panel-section queue-section">
             <h4 class="section-title">Up Next</h4>
             <div id="queue-list" class="scrollable-list">
-              <!-- JS will populate this -->
             </div>
           </div>
           <div class="panel-section add-vibe-section">
@@ -232,7 +190,6 @@
           </div>
         </div>
 
-        <!-- Social Panel -->
         <div class="panel social-panel">
           <div class="panel-tabs">
             <button class="tab-btn active" data-tab="chat">
@@ -282,7 +239,6 @@
           </div>
           <div id="chat-content" class="tab-content active">
             <div id="chat-messages" class="scrollable-list">
-              <!-- JS will populate this -->
             </div>
             <form id="chat-form" class="chat-form">
               <input
@@ -297,19 +253,16 @@
           </div>
           <div id="users-content" class="tab-content">
             <div id="user-list" class="scrollable-list">
-              <!-- JS will populate this -->
             </div>
           </div>
           <div id="suggestions-content" class="tab-content">
             <div id="suggestions-list" class="scrollable-list">
-              <!-- JS will populate this -->
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Scripts -->
     <script src="https://vibes-fqic.onrender.com/socket.io/socket.io.js"></script>
     <script src="/room.js"></script>
     <script>
