@@ -487,9 +487,13 @@ function handleLeaveRoom(socket) {
 function playTrackAtIndex(roomId, index) {
   const room = rooms[roomId];
   if (!room) return;
+
+  // This block handles the end of the playlist
   if (index < 0 || index >= room.playlist.length) {
     if (room.songEndTimer) clearTimeout(room.songEndTimer);
+    // It is correct to clear the syncInterval here, because no song is loaded.
     if (room.syncInterval) clearInterval(room.syncInterval);
+    room.syncInterval = null; // Set to null to be certain
     room.nowPlaying = null;
     room.isPlaying = false;
     room.nowPlayingIndex = -1;
@@ -497,24 +501,40 @@ function playTrackAtIndex(roomId, index) {
     broadcastLobbyData();
     return;
   }
+
   room.nowPlayingIndex = index;
   const track = room.playlist[index];
+
+  // Clear any previous song-end timer
   if (room.songEndTimer) clearTimeout(room.songEndTimer);
-  if (room.syncInterval) clearInterval(room.syncInterval);
+
   room.nowPlaying = { track, startTime: Date.now(), position: 0 };
   room.isPlaying = true;
-  io.to(roomId).emit("newSongPlaying", getAuthoritativeNowPlaying(room));
-  broadcastLobbyData();
-  io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
+
+  // THE FIX: Only create a new interval if one doesn't already exist.
+  // This interval will now run continuously as long as a song is loaded (playing or paused).
+  if (!room.syncInterval) {
+    console.log(`Starting sync interval for room ${roomId}`);
+    room.syncInterval = setInterval(() => {
+      // Add a safety check in case the room is deleted while the interval is running
+      if (rooms[roomId]) { 
+        io.to(roomId).emit("syncPulse", getAuthoritativeNowPlaying(rooms[roomId]));
+      }
+    }, SYNC_INTERVAL);
+  }
+
+  // Set the timer for the *next* song
   room.songEndTimer = setTimeout(
     () => playNextSong(roomId),
     track.duration_ms + 1500
   );
-  room.syncInterval = setInterval(() => {
-    if (room.isPlaying)
-      io.to(roomId).emit("syncPulse", getAuthoritativeNowPlaying(room));
-  }, SYNC_INTERVAL);
+
+  // Broadcast the new song immediately
+  io.to(roomId).emit("newSongPlaying", getAuthoritativeNowPlaying(room));
+  broadcastLobbyData();
+  io.to(roomId).emit("playlistUpdated", getSanitizedPlaylist(room));
 }
+
 const getAuthoritativeNowPlaying = (room) => {
   if (!room || !room.nowPlaying) return null;
   const authoritativeState = {
@@ -557,40 +577,38 @@ const getSanitizedRoomState = (room, isHost, user) => {
 function handleHostPlaybackChange(socket, data) {
   const room = rooms[data.roomId];
   if (!room || socket.user.id !== room.hostUserId || !room.nowPlaying) return;
+
+  // Always clear the song-end timer when the host interacts. We'll set it again if needed.
   if (room.songEndTimer) clearTimeout(room.songEndTimer);
-  if (room.syncInterval) clearInterval(room.syncInterval);
+
+  // Update the playing state based on the host's action
+  room.isPlaying = data.isPlaying;
+
+  // If the host seeks, update the position directly
   if (data.position !== undefined) {
     room.nowPlaying.position = data.position;
-    room.nowPlaying.startTime = Date.now() - data.position;
-    room.isPlaying = true;
-    const remainingDuration = room.nowPlaying.track.duration_ms - data.position;
+  }
+
+  // Recalculate the 'startTime' to keep the position accurate relative to the server's clock.
+  // If paused, this freezes the position. If playing, it sets a new reference point.
+  room.nowPlaying.startTime = Date.now() - room.nowPlaying.position;
+
+  // If the music is now playing, we need to set a new timer for when the song should auto-skip.
+  if (room.isPlaying) {
+    const remainingDuration = room.nowPlaying.track.duration_ms - room.nowPlaying.position;
     room.songEndTimer = setTimeout(
       () => playNextSong(data.roomId),
-      remainingDuration + 1500
+      remainingDuration + 1500 // A buffer for network delays
     );
-  } else {
-    room.isPlaying = data.isPlaying;
-    if (room.isPlaying) {
-      room.nowPlaying.startTime = Date.now() - room.nowPlaying.position;
-      const remainingDuration =
-        room.nowPlaying.track.duration_ms - room.nowPlaying.position;
-      room.songEndTimer = setTimeout(
-        () => playNextSong(data.roomId),
-        remainingDuration + 1500
-      );
-    } else {
-      room.nowPlaying.position = Date.now() - room.nowPlaying.startTime;
-    }
   }
-  if (room.isPlaying) {
-    room.syncInterval = setInterval(() => {
-      if (room.isPlaying) {
-        io.to(data.roomId).emit("syncPulse", getAuthoritativeNowPlaying(room));
-      }
-    }, SYNC_INTERVAL);
-  }
-  io.to(data.roomId).emit("syncPulse", getAuthoritativeNowPlaying(room));
+
+  // THE CRITICAL FIX: Broadcast a full 'newSongPlaying' event.
+  // This is a "strong" update that forces all clients to re-sync their state,
+  // including the crucial isPlaying flag. This is what fixes the "ghost playback".
+  io.to(data.roomId).emit("newSongPlaying", getAuthoritativeNowPlaying(room));
+  broadcastLobbyData(); // Also update the lobby's view of this room
 }
+
 function handleSendMessage(socket, msg) {
   if (!socket.user) return;
   const message = {
