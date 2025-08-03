@@ -24,12 +24,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (tokenFromUrl) {
     localStorage.setItem("vibe_token", tokenFromUrl);
-
-    // Mission accomplished. Now get out of here.
     localStorage.removeItem("redirect_after_login");
 
     if (redirectFromUrl) {
-      // User has a special destination. To the Bat-room brrrrrrrrrrrrrrrrr!
       window.location.href = redirectFromUrl;
       return;
     } else {
@@ -40,7 +37,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const userToken = localStorage.getItem("vibe_token");
 
   if (userToken) {
-    // Legit o legit?
     fetch(`${BACKEND_URL}/api/user`, {
       headers: {
         Authorization: `Bearer ${userToken}`,
@@ -49,7 +45,6 @@ document.addEventListener("DOMContentLoaded", () => {
       .then((res) => {
         if (!res.ok) {
           localStorage.removeItem("vibe_token");
-          // brrrrrrrrrrrrrrrrrr-asura
           return Promise.reject("Not authenticated");
         }
         return res.json();
@@ -71,14 +66,17 @@ document.addEventListener("DOMContentLoaded", () => {
     let googleAuthUrl = `${BACKEND_URL}/auth/google`;
 
     if (redirectPath) {
-      
       googleAuthUrl += `?redirect=${encodeURIComponent(redirectPath)}`;
     }
 
-    const loginButton = document.getElementById("google-login-btn");
-    if (loginButton) {
-      loginButton.href = googleAuthUrl;
-    }
+    const loginButtons = document.querySelectorAll(
+      "#google-login-btn-nav, #google-login-btn-hero, #google-login-btn-cta"
+    );
+    loginButtons.forEach((button) => {
+      if (button) {
+        button.href = googleAuthUrl;
+      }
+    });
   }
 
   function setupLoggedInUI(user, token) {
@@ -235,7 +233,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!selectedVibe || !selectedVibe.name)
         return alert("Please select a preset vibe or create a custom one.");
 
-      window.va && window.va('event', 'Create Room', { vibe: selectedVibe.name });
+      window.va &&
+        window.va("event", "Create Room", { vibe: selectedVibe.name });
 
       socket.emit("createRoom", { roomName, vibe: selectedVibe });
       hideModal();
