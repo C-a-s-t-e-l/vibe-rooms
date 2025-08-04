@@ -959,6 +959,17 @@ function showToastToSocket(socket, message, type = "success") {
   }
 }
 
+setInterval(() => {
+  const oneHourAgo = Date.now() - 3600 * 1000;
+  for (const roomId in rooms) {
+    if (rooms[roomId] && rooms[roomId].chatHistory) {
+      rooms[roomId].chatHistory = rooms[roomId].chatHistory.filter(
+        (message) => new Date(message.timestamp).getTime() > oneHourAgo
+      );
+    }
+  }
+}, 5 * 60 * 1000); 
+
 server.listen(PORT, () =>
   console.log(`VIBES server is live on http://localhost:${PORT}`)
 );
