@@ -56,6 +56,36 @@ body {
   min-height: 100vh;
 }
 
+.auth-loading #app-wrapper {
+  display: none;
+}
+
+#auth-loader {
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.2rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.auth-loading #auth-loader {
+  display: block;
+}
+
+#logged-out-view,
+#logged-in-view {
+  display: none;
+}
+
+.is-authenticated #logged-in-view {
+  display: block;
+}
+.is-guest #logged-out-view {
+  display: block;
+}
+
 .main-nav {
   display: flex;
   justify-content: space-between;

@@ -709,6 +709,17 @@ body {
   color: hsl(var(--primary));
 }
 
+.login-prompt {
+  padding: 1rem 0;
+  text-align: center;
+}
+
+.login-prompt .btn-leave {
+  width: 100%;
+  justify-content: center;
+}
+
+
 @keyframes slideIn {
   to {
     opacity: 1;

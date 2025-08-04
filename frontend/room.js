@@ -5,13 +5,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const savedVolume = localStorage.getItem("vibe_volume") || 80;
   volumeSlider.value = savedVolume;
 
-  if (!userToken) {
-    const intendedDestination = window.location.pathname;
-    localStorage.setItem("redirect_after_login", intendedDestination);
-
-    window.location.href = "/";
-    return;
-  }
+  const googleAuthUrl = `${BACKEND_URL}/auth/google?redirect=${encodeURIComponent(
+    window.location.pathname
+  )}`;
 
   const socket = io(BACKEND_URL, { auth: { token: userToken } });
 
@@ -67,6 +63,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentRoomId = null;
   let nowPlayingInterval;
   let isHost = false,
+    isGuest = true,
     audioContextUnlocked = false,
     currentSongDuration = 0;
   let currentSuggestions = [];
@@ -111,22 +108,19 @@ document.addEventListener("DOMContentLoaded", () => {
   function setupSocketListeners() {
     socket.on("toast", ({ type, message }) => showToast(message, type));
     socket.on("connect_error", (err) => {
-      if (err.message.includes("unauthorized")) {
-        localStorage.removeItem("vibe_token");
-        window.location.href = "/";
-      }
+      console.error("Connection Error:", err.message);
     });
 
     socket.on("roomState", (data) => {
       if (!data) {
         showToast("Room not found or has been deleted.", "error");
-        localStorage.removeItem("vibe_token");
         return (window.location.href = "/");
       }
 
       currentRoomId = data.id;
       document.title = data.name;
       isHost = data.isHost;
+      isGuest = !data.currentUser;
 
       document.getElementById("room-name-display").textContent = data.name;
       document.getElementById("listener-count-display").textContent =
@@ -134,9 +128,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       window.va && window.va("event", "Join Room", { roomName: data.name });
 
-      const addVibeWrapper = document.getElementById("add-vibe-wrapper");
-
-      addVibeWrapper.className = isHost ? "is-host" : "is-guest";
+      updateInteractiveForms();
 
       const hostControlsWrapper = document.getElementById(
         "host-controls-wrapper"
@@ -196,7 +188,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     socket.on("syncPulse", (data) => {
-      if (isHost) {
+      if (isHost || isGuest) {
         return;
       }
 
@@ -232,11 +224,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     socket.on("hostAssigned", () => {
       isHost = true;
-      document.getElementById("add-vibe-wrapper").classList.add("is-host");
-      document.getElementById("add-vibe-wrapper").classList.remove("is-guest");
+      isGuest = false;
       document
         .getElementById("host-controls-wrapper")
         .classList.remove("is-guest");
+      updateInteractiveForms();
       updatePlaylistUI(currentPlaylistState);
       updateSuggestionsUI(currentSuggestions);
     });
@@ -267,28 +259,81 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   }
 
+  function updateInteractiveForms() {
+    const addVibeWrapper = document.getElementById("add-vibe-wrapper");
+    const chatFormWrapper = document.getElementById("chat-form-wrapper");
+
+    const loginPromptHTML = (action) => `
+        <div class="login-prompt">
+            <a href="${googleAuthUrl}" class="btn-leave">Log in to ${action}</a>
+        </div>
+    `;
+
+    const chatFormHTML = `
+        <form id="chat-form" class="chat-form">
+            <input type="text" id="chat-input" placeholder="Say something..." autocomplete="off" required />
+            <button type="submit" id="send-btn">Send</button>
+        </form>
+    `;
+    const addVibeFormHTML = (isHost) => {
+      const title = isHost ? "Add by Link" : "Suggest by Link";
+      const placeholder = isHost
+        ? "Paste YouTube link to add..."
+        : "Paste YouTube link to suggest...";
+      const btnText = isHost ? "Add" : "Suggest";
+      return `
+            <h4 class="section-title">${title}</h4>
+            <form id="link-form" class="link-form">
+                <input type="text" id="link-input" class="link-input-field" placeholder="${placeholder}" autocomplete="off" />
+                <button type="submit" class="form-action-btn">${btnText}</button>
+            </form>
+        `;
+    };
+
+    if (isGuest) {
+      addVibeWrapper.innerHTML = loginPromptHTML("add songs");
+      chatFormWrapper.innerHTML = loginPromptHTML("chat");
+    } else {
+      addVibeWrapper.innerHTML = addVibeFormHTML(isHost);
+      chatFormWrapper.innerHTML = chatFormHTML;
+
+      document.getElementById("chat-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const text = document.getElementById("chat-input").value.trim();
+        if (text) {
+          socket.emit("sendMessage", { roomId: currentRoomId, text });
+          document.getElementById("chat-input").value = "";
+        }
+      });
+
+      document.getElementById("link-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const inputEl = document.getElementById("link-input");
+        const url = inputEl.value.trim();
+        if (url) {
+          socket.emit("addYouTubeTrack", { roomId: currentRoomId, url: url });
+          inputEl.value = "";
+          showToast(isHost ? "Adding to playlist..." : "Suggestion sent!");
+        }
+      });
+    }
+  }
+
   function setupUIEventListeners() {
     playPauseBtn.addEventListener("click", () => {
       if (!isHost || !player) return;
-
       socket.emit("hostPlaybackChange", {
         roomId: currentRoomId,
         isPlaying: !currentPlaylistState.isPlaying,
       });
     });
 
-    document
-      .getElementById("next-btn")
-      .addEventListener(
-        "click",
-        () => isHost && socket.emit("skipTrack", { roomId: currentRoomId })
-      );
-    document
-      .getElementById("prev-btn")
-      .addEventListener(
-        "click",
-        () => isHost && socket.emit("playPrevTrack", { roomId: currentRoomId })
-      );
+    document.getElementById("next-btn").addEventListener("click", () => {
+      if (isHost) socket.emit("skipTrack", { roomId: currentRoomId });
+    });
+    document.getElementById("prev-btn").addEventListener("click", () => {
+      if (isHost) socket.emit("playPrevTrack", { roomId: currentRoomId });
+    });
 
     loopBtn.addEventListener("click", () => {
       if (isHost) {
@@ -313,34 +358,6 @@ document.addEventListener("DOMContentLoaded", () => {
           isPlaying: true,
         });
       });
-
-    document.getElementById("chat-form").addEventListener("submit", (e) => {
-      e.preventDefault();
-      const text = document.getElementById("chat-input").value.trim();
-      if (text) {
-        socket.emit("sendMessage", { roomId: currentRoomId, text });
-        document.getElementById("chat-input").value = "";
-      }
-    });
-
-    const handleLinkSubmit = (e) => {
-      e.preventDefault();
-      const inputEl = isHost
-        ? document.getElementById("host-link-input")
-        : document.getElementById("guest-link-input");
-      const url = inputEl.value.trim();
-      if (url) {
-        socket.emit("addYouTubeTrack", { roomId: currentRoomId, url: url });
-        inputEl.value = "";
-        showToast(isHost ? "Adding to playlist..." : "Suggestion sent!");
-      }
-    };
-    document
-      .getElementById("host-link-form")
-      .addEventListener("submit", handleLinkSubmit);
-    document
-      .getElementById("guest-link-form")
-      .addEventListener("submit", handleLinkSubmit);
 
     const tabButtons = document.querySelectorAll(".tab-btn");
     const tabContents = document.querySelectorAll(".tab-content");
