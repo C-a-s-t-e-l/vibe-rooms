@@ -362,8 +362,9 @@ body {
   gap: 1rem;
 }
 .rooms-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center; 
   gap: 1.5rem;
 }
 .room-card {
