@@ -35,11 +35,27 @@ const PORT = process.env.PORT || 3000;
 const SYNC_INTERVAL = 500;
 let rooms = {};
 let userSockets = {};
+let guestSockets = {}; // For tracking guests
 const RECONNECTION_GRACE_PERIOD = 10 * 1000;
 const reconnectionTimers = {};
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+const pokemonNames = [
+  "Pikachu",
+  "Charmander",
+  "Squirtle",
+  "Bulbasaur",
+  "Jigglypuff",
+  "Snorlax",
+  "Eevee",
+  "Mewtwo",
+  "Gengar",
+  "Psyduck",
+  "Magikarp",
+  "Ditto",
+];
 
 const sessionMiddleware = session({
   store: new pgSession({
@@ -159,7 +175,7 @@ io.on("connection", (socket) => {
   socket.on("hostPlaybackChange", (data) =>
     handleHostPlaybackChange(socket, data)
   );
-  socket.on("disconnect", () => handleLeaveRoom(socket));
+  socket.on("disconnect", () => handleDisconnect(socket));
   socket.on("addYouTubeTrack", (data) => handleAddYouTubeTrack(socket, data));
   socket.on("approveSuggestion", (data) =>
     handleApproveSuggestion(socket, data)
@@ -378,13 +394,18 @@ function handleHostUpdateDuration(socket, { roomId, trackIndex, durationMs }) {
 }
 
 const generateUserList = (room) => {
-  if (!room) return [];
+  if (!room || !room.listeners) return [];
   return Object.values(room.listeners).map((listener) => ({
     id: listener.user.id,
     displayName: listener.user.displayName,
     avatar: listener.user.avatar,
     isHost: listener.user.id === room.hostUserId,
   }));
+};
+
+const generateGuestList = (room) => {
+  if (!room || !room.guests) return [];
+  return Object.values(room.guests);
 };
 
 const getSanitizedPlaylist = (room) => ({
@@ -410,6 +431,7 @@ async function handleJoinRoom(socket, slug) {
       vibe: { name: dbRoom.vibe_id.name, type: dbRoom.vibe_id.type },
       hostUserId: dbRoom.host_user_id,
       listeners: {},
+      guests: {},
       playlist: [],
       nowPlayingIndex: -1,
       suggestions: [],
@@ -436,64 +458,93 @@ async function handleJoinRoom(socket, slug) {
   let finalUser = null;
 
   if (user) {
+    isHost = room.hostUserId === user.id;
     finalUser = {
       id: user.id,
       displayName: user.displayName,
       avatar: user.avatar,
     };
-    isHost = room.hostUserId === user.id;
-
     if (reconnectionTimers[user.id]) {
       clearTimeout(reconnectionTimers[user.id]);
       delete reconnectionTimers[user.id];
     }
-
     room.listeners[user.id] = { socketId: socket.id, user: user };
     userSockets[socket.id] = { user: user, roomId };
 
-    if (Object.keys(room.listeners).length === 1) {
-      if (room.hostUserId !== user.id) {
-        room.hostUserId = user.id;
-        await supabase
-          .from("rooms")
-          .update({ host_user_id: user.id })
-          .eq("id", roomId);
-        isHost = true;
-      }
+    if (Object.keys(room.listeners).length === 1 && !room.hostUserId) {
+      room.hostUserId = user.id;
+      await supabase
+        .from("rooms")
+        .update({ host_user_id: user.id })
+        .eq("id", roomId);
+      isHost = true;
     }
-
     io.to(roomId).emit("newChatMessage", {
       system: true,
       text: `${user.displayName} has joined the vibe.`,
     });
+  } else {
+    // This is a guest
+    const guestName =
+      pokemonNames[Math.floor(Math.random() * pokemonNames.length)];
+    const guestUser = { id: socket.id, displayName: guestName, isGuest: true };
+    room.guests[socket.id] = guestUser;
+    guestSockets[socket.id] = { roomId };
+    io.to(roomId).emit("newChatMessage", {
+      system: true,
+      text: `${guestName} (Guest) has joined the vibe.`,
+    });
   }
 
   const userList = generateUserList(room);
+  const guestList = generateGuestList(room);
   const listenerCount = io.sockets.adapter.rooms.get(roomId)?.size || 1;
 
   socket.emit(
     "roomState",
-    getSanitizedRoomState(room, isHost, finalUser, listenerCount, userList)
+    getSanitizedRoomState(
+      room,
+      isHost,
+      finalUser,
+      listenerCount,
+      userList,
+      guestList
+    )
   );
 
-  if (user) {
-    io.to(roomId).emit("updateUserList", userList);
-  }
-  io.to(roomId).emit("updateListenerCount", listenerCount);
+  broadcastRoomUpdates(roomId);
   broadcastLobbyData();
+}
+
+function broadcastRoomUpdates(roomId) {
+  const room = rooms[roomId];
+  if (!room) return;
+
+  const userList = generateUserList(room);
+  const guestList = generateGuestList(room);
+  const listenerCount = io.sockets.adapter.rooms.get(roomId)?.size || 0;
+
+  io.to(roomId).emit("rosterUpdated", {
+    userList: userList,
+    guestList: guestList,
+  });
+  io.to(roomId).emit("updateListenerCount", listenerCount);
 }
 
 async function processUserLeave(socket, roomId) {
   const room = rooms[roomId];
   if (!room || !socket.user || !room.listeners[socket.user.id]) return;
+
   const user = socket.user;
   const wasHost = room.hostUserId === user.id;
   delete room.listeners[user.id];
   delete userSockets[socket.id];
+
   io.to(roomId).emit("newChatMessage", {
     system: true,
     text: `${user.displayName} has left the vibe.`,
   });
+
   const remainingListeners = Object.values(room.listeners);
   if (wasHost && remainingListeners.length > 0) {
     const newHost = remainingListeners[0];
@@ -512,14 +563,18 @@ async function processUserLeave(socket, roomId) {
     }
   }
 
-  const updatedUserList = generateUserList(room);
-  const listenerCount = io.sockets.adapter.rooms.get(roomId)?.size || 0;
-  io.to(roomId).emit("updateUserList", updatedUserList);
-  io.to(roomId).emit("updateListenerCount", listenerCount);
+  broadcastRoomUpdates(roomId);
 
-  if (remainingListeners.length === 0) {
+  if (
+    Object.keys(room.listeners).length === 0 &&
+    Object.keys(room.guests).length === 0
+  ) {
     room.deletionTimer = setTimeout(async () => {
-      if (rooms[roomId] && Object.keys(rooms[roomId].listeners).length === 0) {
+      if (
+        rooms[roomId] &&
+        Object.keys(rooms[roomId].listeners).length === 0 &&
+        Object.keys(rooms[roomId].guests).length === 0
+      ) {
         if (room.songEndTimer) clearTimeout(room.songEndTimer);
         if (room.syncInterval) clearInterval(room.syncInterval);
         delete rooms[roomId];
@@ -531,14 +586,33 @@ async function processUserLeave(socket, roomId) {
   broadcastLobbyData();
 }
 
-function handleLeaveRoom(socket) {
+function handleDisconnect(socket) {
   const userSocketInfo = userSockets[socket.id];
-  if (!userSocketInfo || !userSocketInfo.user) return;
-  const { user, roomId } = userSocketInfo;
-  reconnectionTimers[user.id] = setTimeout(() => {
-    processUserLeave(socket, roomId);
-    delete reconnectionTimers[user.id];
-  }, RECONNECTION_GRACE_PERIOD);
+  if (userSocketInfo) {
+    reconnectionTimers[userSocketInfo.user.id] = setTimeout(() => {
+      processUserLeave(socket, userSocketInfo.roomId);
+      delete reconnectionTimers[userSocketInfo.user.id];
+    }, RECONNECTION_GRACE_PERIOD);
+    return;
+  }
+
+  const guestSocketInfo = guestSockets[socket.id];
+  if (guestSocketInfo) {
+    const { roomId } = guestSocketInfo;
+    const room = rooms[roomId];
+    if (room && room.guests[socket.id]) {
+      io.to(roomId).emit("newChatMessage", {
+        system: true,
+        text: `${
+          room.guests[socket.id].displayName
+        } (Guest) has left the vibe.`,
+      });
+      delete room.guests[socket.id];
+      delete guestSockets[socket.id];
+      broadcastRoomUpdates(roomId);
+      broadcastLobbyData();
+    }
+  }
 }
 
 function playTrackAtIndex(roomId, index) {
@@ -603,7 +677,8 @@ const getSanitizedRoomState = (
   isHost,
   currentUser,
   listenerCount,
-  userList
+  userList,
+  guestList
 ) => {
   if (!room) return null;
   const {
@@ -611,6 +686,7 @@ const getSanitizedRoomState = (
     deletionTimer,
     syncInterval,
     listeners,
+    guests,
     ...safeRoomState
   } = room;
 
@@ -621,6 +697,7 @@ const getSanitizedRoomState = (
   safeRoomState.playlistState = getSanitizedPlaylist(room);
   safeRoomState.suggestions = room.suggestions;
   safeRoomState.userList = userList;
+  safeRoomState.guestList = guestList;
   safeRoomState.chatHistory = room.chatHistory || [];
   safeRoomState.loopMode = room.loopMode;
   return safeRoomState;
@@ -849,6 +926,7 @@ async function handleCreateRoom(socket, roomData) {
       vibe: vibe,
       hostUserId: socket.user.id,
       listeners: {},
+      guests: {},
       playlist: [],
       nowPlayingIndex: -1,
       suggestions: [],
