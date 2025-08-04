@@ -35,7 +35,7 @@ const PORT = process.env.PORT || 3000;
 const SYNC_INTERVAL = 500;
 let rooms = {};
 let userSockets = {};
-let guestSockets = {}; // For tracking guests
+let guestSockets = {};
 const RECONNECTION_GRACE_PERIOD = 10 * 1000;
 const reconnectionTimers = {};
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -169,8 +169,7 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   socket.on("getRooms", () => broadcastLobbyData());
   socket.on("createRoom", (roomData) => handleCreateRoom(socket, roomData));
-  socket.on("joinRoom", (roomId) => handleJoinRoom(socket, roomId));
-  socket.on("leaveRoom", ({ roomId }) => processUserLeave(socket, roomId));
+  socket.on("joinRoom", (slug) => handleJoinRoom(socket, slug));
   socket.on("sendMessage", (msg) => handleSendMessage(socket, msg));
   socket.on("hostPlaybackChange", (data) =>
     handleHostPlaybackChange(socket, data)
@@ -458,16 +457,18 @@ async function handleJoinRoom(socket, slug) {
   let finalUser = null;
 
   if (user) {
+    if (reconnectionTimers[user.id]) {
+      clearTimeout(reconnectionTimers[user.id]);
+      delete reconnectionTimers[user.id];
+    }
+
     isHost = room.hostUserId === user.id;
     finalUser = {
       id: user.id,
       displayName: user.displayName,
       avatar: user.avatar,
     };
-    if (reconnectionTimers[user.id]) {
-      clearTimeout(reconnectionTimers[user.id]);
-      delete reconnectionTimers[user.id];
-    }
+
     room.listeners[user.id] = { socketId: socket.id, user: user };
     userSockets[socket.id] = { user: user, roomId };
 
@@ -484,7 +485,6 @@ async function handleJoinRoom(socket, slug) {
       text: `${user.displayName} has joined the vibe.`,
     });
   } else {
-    // This is a guest
     const guestName =
       pokemonNames[Math.floor(Math.random() * pokemonNames.length)];
     const guestUser = { id: socket.id, displayName: guestName, isGuest: true };
@@ -531,28 +531,30 @@ function broadcastRoomUpdates(roomId) {
   io.to(roomId).emit("updateListenerCount", listenerCount);
 }
 
-async function processUserLeave(socket, roomId) {
+async function handleUserLeave(socket, roomId) {
   const room = rooms[roomId];
   if (!room || !socket.user || !room.listeners[socket.user.id]) return;
 
   const user = socket.user;
   const wasHost = room.hostUserId === user.id;
-  delete room.listeners[user.id];
-  delete userSockets[socket.id];
 
   io.to(roomId).emit("newChatMessage", {
     system: true,
     text: `${user.displayName} has left the vibe.`,
   });
 
-  const remainingListeners = Object.values(room.listeners);
-  if (wasHost && remainingListeners.length > 0) {
-    const newHost = remainingListeners[0];
+  delete room.listeners[user.id];
+  delete userSockets[socket.id];
+
+  const remainingUsers = Object.values(room.listeners);
+  if (wasHost && remainingUsers.length > 0) {
+    const newHost = remainingUsers[0];
     room.hostUserId = newHost.user.id;
     await supabase
       .from("rooms")
       .update({ host_user_id: newHost.user.id })
       .eq("id", roomId);
+
     const newHostSocket = io.sockets.sockets.get(newHost.socketId);
     if (newHostSocket) {
       newHostSocket.emit("hostAssigned");
@@ -588,9 +590,9 @@ async function processUserLeave(socket, roomId) {
 
 function handleDisconnect(socket) {
   const userSocketInfo = userSockets[socket.id];
-  if (userSocketInfo) {
+  if (userSocketInfo && userSocketInfo.user) {
     reconnectionTimers[userSocketInfo.user.id] = setTimeout(() => {
-      processUserLeave(socket, userSocketInfo.roomId);
+      handleUserLeave(socket, userSocketInfo.roomId);
       delete reconnectionTimers[userSocketInfo.user.id];
     }, RECONNECTION_GRACE_PERIOD);
     return;
@@ -968,7 +970,7 @@ setInterval(() => {
       );
     }
   }
-}, 5 * 60 * 1000); 
+}, 5 * 60 * 1000);
 
 server.listen(PORT, () =>
   console.log(`VIBES server is live on http://localhost:${PORT}`)
