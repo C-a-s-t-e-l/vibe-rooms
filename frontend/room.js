@@ -532,14 +532,19 @@ document.addEventListener("DOMContentLoaded", () => {
     const chatMessages = document.getElementById("chat-messages");
     const msgDiv = document.createElement("div");
     msgDiv.className = "chat-message";
-    msgDiv.innerHTML = `<img src="${message.avatar}" alt="${
+
+    const messageTimestamp = new Date(message.timestamp).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+     msgDiv.innerHTML = `<img src="${message.avatar}" alt="${
       message.user
     }" class="chat-message__avatar"><div class="chat-message__content"><div class="chat-message__header"><span class="chat-message__username">${
       message.user
-    }</span><span class="chat-message__timestamp">${new Date().toLocaleTimeString(
-      [],
-      { hour: "2-digit", minute: "2-digit" }
-    )}</span></div><p class="chat-message__text">${message.text}</p></div>`;
+    }</span><span class="chat-message__timestamp">${messageTimestamp}</span></div><p class="chat-message__text">${
+      message.text
+    }</p></div>`;
     chatMessages.appendChild(msgDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
