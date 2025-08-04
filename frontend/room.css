@@ -483,6 +483,7 @@ body {
 }
 
 #user-count-display,
+#guest-count-display,
 #suggestions-count-display {
   color: hsl(var(--muted-foreground));
   margin-left: 0.25rem;
@@ -490,6 +491,7 @@ body {
 }
 
 .tab-btn.active #user-count-display,
+.tab-btn.active #guest-count-display,
 .tab-btn.active #suggestions-count-display {
   color: inherit;
 }
@@ -584,7 +586,8 @@ body {
 }
 
 #user-list,
-#suggestions-list {
+#suggestions-list,
+#guest-list {
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -709,48 +712,6 @@ body {
   color: hsl(var(--primary));
 }
 
-.login-prompt {
-  padding: 1rem 0;
-  text-align: center;
-}
-
-.login-prompt .btn-leave {
-  width: 100%;
-  justify-content: center;
-}
-
-#guests-tab-btn {
-  display: none; 
-}
-
-.guest-list-item {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  opacity: 0.7; 
-}
-
-.guest-list-item .guest-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background-color: hsl(var(--muted));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.guest-list-item .guest-avatar svg {
-  width: 24px;
-  height: 24px;
-  color: hsl(var(--muted-foreground));
-}
-
-.guest-list-item span {
-  font-weight: 600;
-}
-
-
 @keyframes slideIn {
   to {
     opacity: 1;
@@ -796,9 +757,9 @@ body {
   }
 
   #chat-content {
-  max-height: 600px;
-  min-height: 400px;
-}
+    max-height: 600px;
+    min-height: 400px;
+  }
 
   #chat-input {
     padding: 0.75rem 0.8rem;
@@ -868,4 +829,45 @@ body {
   .panel-tabs::-webkit-scrollbar {
     display: none;
   }
+}
+
+.login-prompt {
+  padding: 1rem 0;
+  text-align: center;
+}
+
+.login-prompt .btn-leave {
+  width: 100%;
+  justify-content: center;
+}
+
+#guests-tab-btn {
+  display: none; /* Hidden by default */
+}
+
+.guest-list-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  opacity: 0.7; /* Make guests visually distinct */
+}
+
+.guest-list-item .guest-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: hsl(var(--muted));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.guest-list-item .guest-avatar svg {
+  width: 24px;
+  height: 24px;
+  color: hsl(var(--muted-foreground));
+}
+
+.guest-list-item span {
+  font-weight: 600;
 }
