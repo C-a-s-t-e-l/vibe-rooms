@@ -746,6 +746,7 @@ function handleSendMessage(socket, msg) {
     user: socket.user.displayName,
     userId: socket.user.id,
     avatar: socket.user.avatar,
+    timestamp: new Date(),
   };
   if (!room.chatHistory) room.chatHistory = [];
   room.chatHistory.push(message);
