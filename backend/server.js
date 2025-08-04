@@ -24,11 +24,13 @@ const FRONTEND_URL =
   process.env.FRONTEND_URL || "https://vibe-rooms-five.vercel.app";
 const corsOptions = { origin: FRONTEND_URL, credentials: true };
 app.use(cors(corsOptions));
+
 const io = new Server(server, {
   cors: { origin: FRONTEND_URL, methods: ["GET", "POST"], credentials: true },
-  pingInterval: 25000,
-  pingTimeout: 60000,
+  pingInterval: 10000,
+  pingTimeout: 20000,
 });
+
 const PORT = process.env.PORT || 3000;
 const SYNC_INTERVAL = 500;
 let rooms = {};
@@ -77,9 +79,8 @@ passport.deserializeUser((user, done) => done(null, user));
 app.get(
   "/auth/google",
   (req, res, next) => {
-    if (req.query.redirect) {
-      req.session.redirectUrl = req.query.redirect;
-    }
+    const redirect = req.query.redirect || "/";
+    req.session.redirectUrl = redirect;
     next();
   },
   passport.authenticate("google", { scope: ["profile", "email"] })
@@ -101,15 +102,14 @@ app.get(
       expiresIn: "1d",
     });
 
-    const redirectUrl = req.session.redirectUrl;
+    const redirectUrl = req.session.redirectUrl || "/";
     req.session.redirectUrl = null;
 
-    let finalRedirect = `${FRONTEND_URL}?token=${token}`;
-    if (redirectUrl) {
-      finalRedirect += `&redirect=${encodeURIComponent(redirectUrl)}`;
-    }
-
-    res.redirect(finalRedirect);
+    let finalRedirectUrl = new URL(FRONTEND_URL);
+    finalRedirectUrl.pathname =
+      redirectUrl.startsWith("/") && redirectUrl.length > 1 ? redirectUrl : "/";
+    finalRedirectUrl.searchParams.set("token", token);
+    res.redirect(finalRedirectUrl.toString());
   }
 );
 
@@ -133,11 +133,18 @@ app.get("/health", (req, res) => {
 io.engine.use(sessionMiddleware);
 io.engine.use(passport.initialize());
 io.engine.use(passport.session());
+
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
-  if (!token) return next(new Error("unauthorized: no token provided"));
+  if (!token) {
+    socket.user = null;
+    return next();
+  }
   jwt.verify(token, process.env.SESSION_SECRET, (err, user) => {
-    if (err) return next(new Error("unauthorized: invalid token"));
+    if (err) {
+      socket.user = null;
+      return next();
+    }
     socket.user = user;
     next();
   });
@@ -159,16 +166,31 @@ io.on("connection", (socket) => {
   );
   socket.on("rejectSuggestion", (data) => handleRejectSuggestion(socket, data));
   socket.on("skipTrack", (data) => {
-    if (rooms[data.roomId] && socket.user.id === rooms[data.roomId].hostUserId)
-      handleSongEnd(data.roomId);
+    if (
+      !socket.user ||
+      !rooms[data.roomId] ||
+      socket.user.id !== rooms[data.roomId].hostUserId
+    )
+      return;
+    handleSongEnd(data.roomId);
   });
   socket.on("playPrevTrack", (data) => {
-    if (rooms[data.roomId] && socket.user.id === rooms[data.roomId].hostUserId)
-      playPrevSong(data.roomId);
+    if (
+      !socket.user ||
+      !rooms[data.roomId] ||
+      socket.user.id !== rooms[data.roomId].hostUserId
+    )
+      return;
+    playPrevSong(data.roomId);
   });
   socket.on("playTrackAtIndex", (data) => {
-    if (rooms[data.roomId] && socket.user.id === rooms[data.roomId].hostUserId)
-      playTrackAtIndex(data.roomId, data.index);
+    if (
+      !socket.user ||
+      !rooms[data.roomId] ||
+      socket.user.id !== rooms[data.roomId].hostUserId
+    )
+      return;
+    playTrackAtIndex(data.roomId, data.index);
   });
   socket.on("deleteTrack", (data) => handleDeleteTrack(socket, data));
   socket.on("hostUpdateDuration", (data) =>
@@ -194,7 +216,7 @@ io.on("connection", (socket) => {
   });
   socket.on("toggleLoopMode", ({ roomId }) => {
     const room = rooms[roomId];
-    if (!room || socket.user.id !== room.hostUserId) return;
+    if (!room || !socket.user || socket.user.id !== room.hostUserId) return;
 
     const modes = ["none", "playlist", "song"];
     const currentModeIndex = modes.indexOf(room.loopMode || "none");
@@ -212,6 +234,12 @@ io.on("connection", (socket) => {
 async function handleAddYouTubeTrack(socket, { roomId, url }) {
   const room = rooms[roomId];
   if (!room) return;
+  if (!socket.user) {
+    return socket.emit("toast", {
+      type: "error",
+      message: "Please log in to suggest songs.",
+    });
+  }
   try {
     const playlistId = getPlaylistIdFromUrl(url);
     const videoId = getVideoIdFromUrl(url);
@@ -326,6 +354,7 @@ function parseISO8601Duration(isoDuration) {
 function handleHostUpdateDuration(socket, { roomId, trackIndex, durationMs }) {
   const room = rooms[roomId];
   if (
+    !socket.user ||
     !room ||
     socket.user.id !== room.hostUserId ||
     room.nowPlayingIndex !== trackIndex ||
@@ -392,37 +421,65 @@ async function handleJoinRoom(socket, slug) {
     };
     room = rooms[roomId];
   }
+
   const roomId = room.id;
   const user = socket.user;
-  if (reconnectionTimers[user.id]) {
-    clearTimeout(reconnectionTimers[user.id]);
-    delete reconnectionTimers[user.id];
-  }
+
+  socket.join(roomId);
+
   if (room.deletionTimer) {
     clearTimeout(room.deletionTimer);
     room.deletionTimer = null;
   }
-  socket.join(roomId);
-  room.listeners[user.id] = { socketId: socket.id, user: user };
-  userSockets[socket.id] = { user: user, roomId };
-  if (Object.keys(room.listeners).length === 1) {
-    if (room.hostUserId !== user.id) {
-      room.hostUserId = user.id;
-      await supabase
-        .from("rooms")
-        .update({ host_user_id: user.id })
-        .eq("id", roomId);
+
+  let isHost = false;
+  let finalUser = null;
+
+  if (user) {
+    finalUser = {
+      id: user.id,
+      displayName: user.displayName,
+      avatar: user.avatar,
+    };
+    isHost = room.hostUserId === user.id;
+
+    if (reconnectionTimers[user.id]) {
+      clearTimeout(reconnectionTimers[user.id]);
+      delete reconnectionTimers[user.id];
     }
+
+    room.listeners[user.id] = { socketId: socket.id, user: user };
+    userSockets[socket.id] = { user: user, roomId };
+
+    if (Object.keys(room.listeners).length === 1) {
+      if (room.hostUserId !== user.id) {
+        room.hostUserId = user.id;
+        await supabase
+          .from("rooms")
+          .update({ host_user_id: user.id })
+          .eq("id", roomId);
+        isHost = true;
+      }
+    }
+
+    io.to(roomId).emit("newChatMessage", {
+      system: true,
+      text: `${user.displayName} has joined the vibe.`,
+    });
   }
-  const isHost = room.hostUserId === user.id;
-  socket.emit("roomState", getSanitizedRoomState(room, isHost, user));
-  io.to(roomId).emit("newChatMessage", {
-    system: true,
-    text: `${user.displayName} has joined the vibe.`,
-  });
+
   const userList = generateUserList(room);
-  io.to(roomId).emit("updateUserList", userList);
-  io.to(roomId).emit("updateListenerCount", userList.length);
+  const listenerCount = io.sockets.adapter.rooms.get(roomId)?.size || 1;
+
+  socket.emit(
+    "roomState",
+    getSanitizedRoomState(room, isHost, finalUser, listenerCount, userList)
+  );
+
+  if (user) {
+    io.to(roomId).emit("updateUserList", userList);
+  }
+  io.to(roomId).emit("updateListenerCount", listenerCount);
   broadcastLobbyData();
 }
 
@@ -454,9 +511,12 @@ async function processUserLeave(socket, roomId) {
       });
     }
   }
+
   const updatedUserList = generateUserList(room);
+  const listenerCount = io.sockets.adapter.rooms.get(roomId)?.size || 0;
   io.to(roomId).emit("updateUserList", updatedUserList);
-  io.to(roomId).emit("updateListenerCount", updatedUserList.length);
+  io.to(roomId).emit("updateListenerCount", listenerCount);
+
   if (remainingListeners.length === 0) {
     room.deletionTimer = setTimeout(async () => {
       if (rooms[roomId] && Object.keys(rooms[roomId].listeners).length === 0) {
@@ -473,7 +533,7 @@ async function processUserLeave(socket, roomId) {
 
 function handleLeaveRoom(socket) {
   const userSocketInfo = userSockets[socket.id];
-  if (!userSocketInfo) return;
+  if (!userSocketInfo || !userSocketInfo.user) return;
   const { user, roomId } = userSocketInfo;
   reconnectionTimers[user.id] = setTimeout(() => {
     processUserLeave(socket, roomId);
@@ -538,7 +598,13 @@ const getAuthoritativeNowPlaying = (room) => {
   };
 };
 
-const getSanitizedRoomState = (room, isHost, user) => {
+const getSanitizedRoomState = (
+  room,
+  isHost,
+  currentUser,
+  listenerCount,
+  userList
+) => {
   if (!room) return null;
   const {
     songEndTimer,
@@ -547,14 +613,10 @@ const getSanitizedRoomState = (room, isHost, user) => {
     listeners,
     ...safeRoomState
   } = room;
-  const userList = generateUserList(room);
-  safeRoomState.listenerCount = userList.length;
+
+  safeRoomState.listenerCount = listenerCount;
   safeRoomState.isHost = isHost;
-  safeRoomState.currentUser = {
-    name: user.displayName,
-    id: user.id,
-    avatar: user.avatar,
-  };
+  safeRoomState.currentUser = currentUser;
   safeRoomState.nowPlaying = getAuthoritativeNowPlaying(room);
   safeRoomState.playlistState = getSanitizedPlaylist(room);
   safeRoomState.suggestions = room.suggestions;
@@ -566,7 +628,13 @@ const getSanitizedRoomState = (room, isHost, user) => {
 
 function handleHostPlaybackChange(socket, data) {
   const room = rooms[data.roomId];
-  if (!room || socket.user.id !== room.hostUserId || !room.nowPlaying) return;
+  if (
+    !socket.user ||
+    !room ||
+    socket.user.id !== room.hostUserId ||
+    !room.nowPlaying
+  )
+    return;
 
   if (room.songEndTimer) clearTimeout(room.songEndTimer);
 
@@ -604,14 +672,12 @@ function handleSendMessage(socket, msg) {
   };
   if (!room.chatHistory) room.chatHistory = [];
   room.chatHistory.push(message);
+
+  if (room.chatHistory.length > 100) {
+    room.chatHistory.shift();
+  }
+
   io.to(msg.roomId).emit("newChatMessage", message);
-  setTimeout(() => {
-    if (room && room.chatHistory) {
-      room.chatHistory = room.chatHistory.filter(
-        (m) => m.messageId !== message.messageId
-      );
-    }
-  }, 3600 * 1000);
 }
 
 async function broadcastLobbyData() {
@@ -627,7 +693,7 @@ const getPublicRoomsData = () =>
     id: r.id,
     slug: r.slug,
     name: r.name,
-    listenerCount: Object.keys(r.listeners).length,
+    listenerCount: io.sockets.adapter.rooms.get(r.id)?.size || 1,
     nowPlaying: r.nowPlaying,
     vibe: r.vibe,
   }));
@@ -678,6 +744,7 @@ function playPrevSong(roomId) {
 function handleDeleteTrack(socket, { roomId, indexToDelete }) {
   const room = rooms[roomId];
   if (
+    !socket.user ||
     !room ||
     socket.user.id !== room.hostUserId ||
     indexToDelete < 0 ||
@@ -698,7 +765,7 @@ function handleDeleteTrack(socket, { roomId, indexToDelete }) {
 
 function handleApproveSuggestion(socket, { roomId, suggestionId }) {
   const room = rooms[roomId];
-  if (!room || socket.user.id !== room.hostUserId) return;
+  if (!socket.user || !room || socket.user.id !== room.hostUserId) return;
   const suggestionIndex = room.suggestions.findIndex(
     (s) => s.suggestionId === suggestionId
   );
@@ -720,7 +787,7 @@ function handleApproveSuggestion(socket, { roomId, suggestionId }) {
 
 function handleRejectSuggestion(socket, { roomId, suggestionId }) {
   const room = rooms[roomId];
-  if (!room || socket.user.id !== room.hostUserId) return;
+  if (!socket.user || !room || socket.user.id !== room.hostUserId) return;
   const initialLength = room.suggestions.length;
   room.suggestions = room.suggestions.filter(
     (s) => s.suggestionId !== suggestionId
@@ -749,6 +816,11 @@ async function findOrCreateVibe(vibeData) {
 }
 
 async function handleCreateRoom(socket, roomData) {
+  if (!socket.user) {
+    return socket.emit("error", {
+      message: "You must be logged in to create a room.",
+    });
+  }
   const { roomName, vibe } = roomData;
   if (!roomName || !vibe)
     return socket.emit("error", { message: "Invalid room data." });
