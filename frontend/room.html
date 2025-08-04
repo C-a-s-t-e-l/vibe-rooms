@@ -138,14 +138,8 @@
               <div class="host-only-controls">
                 <div class="media-buttons-group">
                   <button class="icon-btn" id="loop-btn" title="Looping Off">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                    >
-                      <path
-                        d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"
-                      />
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
                     </svg>
                   </button>
                   <button class="icon-btn" id="prev-btn">
@@ -184,7 +178,8 @@
             <div id="queue-list" class="scrollable-list"></div>
           </div>
           <div class="panel-section add-vibe-section">
-            <div id="add-vibe-wrapper"></div>
+            <div id="add-vibe-wrapper">
+            </div>
           </div>
         </div>
 
@@ -215,7 +210,13 @@
                 <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
                 <path d="M16 3.13a4 4 0 0 1 0 7.75" />
               </svg>
-              <span>Users<span id="user-count-display">(1)</span></span>
+              <span>Users<span id="user-count-display">(0)</span></span>
+            </button>
+            <button id="guests-tab-btn" class="tab-btn" data-tab="guests">
+              <svg class="header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+              </svg>
+              <span>Guests<span id="guest-count-display">(0)</span></span>
             </button>
             <button class="tab-btn" data-tab="suggestions">
               <svg
@@ -241,6 +242,9 @@
           </div>
           <div id="users-content" class="tab-content">
             <div id="user-list" class="scrollable-list"></div>
+          </div>
+          <div id="guests-content" class="tab-content">
+            <div id="guest-list" class="scrollable-list"></div>
           </div>
           <div id="suggestions-content" class="tab-content">
             <div id="suggestions-list" class="scrollable-list"></div>

@@ -123,8 +123,6 @@ document.addEventListener("DOMContentLoaded", () => {
       isGuest = !data.currentUser;
 
       document.getElementById("room-name-display").textContent = data.name;
-      document.getElementById("listener-count-display").textContent =
-        data.listenerCount;
 
       window.va && window.va("event", "Join Room", { roomName: data.name });
 
@@ -146,6 +144,10 @@ document.addEventListener("DOMContentLoaded", () => {
       updateSuggestionsUI(currentSuggestions);
 
       updateUserListUI(data.userList || []);
+      updateGuestListUI(data.guestList || []);
+
+      document.getElementById("listener-count-display").textContent =
+        data.listenerCount;
 
       const chatMessages = document.getElementById("chat-messages");
       chatMessages.innerHTML = "";
@@ -156,6 +158,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       syncPlayerState(data.nowPlaying);
+    });
+
+    socket.on("rosterUpdated", ({ userList, guestList }) => {
+      updateUserListUI(userList);
+      updateGuestListUI(guestList);
     });
 
     socket.on("newSongPlaying", (nowPlayingData) => {
@@ -251,7 +258,6 @@ document.addEventListener("DOMContentLoaded", () => {
         ? renderSystemMessage(message.text)
         : renderChatMessage(message)
     );
-    socket.on("updateUserList", (users) => updateUserListUI(users));
     socket.on(
       "updateListenerCount",
       (count) =>
@@ -559,6 +565,34 @@ document.addEventListener("DOMContentLoaded", () => {
       const hostIcon = user.isHost ? '<span class="host-icon">👑</span>' : "";
       userItem.innerHTML = `<img src="${user.avatar}" alt="${user.displayName}"><span>${user.displayName}</span>${hostIcon}`;
       userList.appendChild(userItem);
+    });
+  }
+
+  function updateGuestListUI(guests) {
+    const guestList = document.getElementById("guest-list");
+    const guestCountDisplay = document.getElementById("guest-count-display");
+    const guestsTabBtn = document.getElementById("guests-tab-btn");
+    guestList.innerHTML = "";
+    guestCountDisplay.textContent = `(${guests.length})`;
+
+    if (guests.length > 0) {
+      guestsTabBtn.style.display = "inline-flex";
+    } else {
+      guestsTabBtn.style.display = "none";
+    }
+
+    guests.forEach((guest) => {
+      const guestItem = document.createElement("div");
+      guestItem.className = "guest-list-item";
+      guestItem.innerHTML = `
+            <div class="guest-avatar">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                </svg>
+            </div>
+            <span>${guest.displayName}</span>
+        `;
+      guestList.appendChild(guestItem);
     });
   }
 
