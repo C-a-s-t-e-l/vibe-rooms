@@ -107,6 +107,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function setupSocketListeners() {
     socket.on("toast", ({ type, message }) => showToast(message, type));
+
+    socket.on("disconnect", (reason) => {
+      showToast("Connection lost, reconnecting...", "error");
+    });
+
+    socket.on("connect", () => {
+      showToast("Reconnected!", "success");
+      if (currentRoomSlug) {
+        socket.emit("joinRoom", currentRoomSlug);
+      }
+    });
+
     socket.on("connect_error", (err) => {
       console.error("Connection Error:", err.message);
     });
@@ -533,18 +545,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const msgDiv = document.createElement("div");
     msgDiv.className = "chat-message";
 
-    const messageTimestamp = new Date(message.timestamp).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    const messageTimestamp = new Date(message.timestamp).toLocaleTimeString(
+      [],
+      {
+        hour: "2-digit",
+        minute: "2-digit",
+      }
+    );
 
-     msgDiv.innerHTML = `<img src="${message.avatar}" alt="${
-      message.user
-    }" class="chat-message__avatar"><div class="chat-message__content"><div class="chat-message__header"><span class="chat-message__username">${
-      message.user
-    }</span><span class="chat-message__timestamp">${messageTimestamp}</span></div><p class="chat-message__text">${
-      message.text
-    }</p></div>`;
+    msgDiv.innerHTML = `<img src="${message.avatar}" alt="${message.user}" class="chat-message__avatar"><div class="chat-message__content"><div class="chat-message__header"><span class="chat-message__username">${message.user}</span><span class="chat-message__timestamp">${messageTimestamp}</span></div><p class="chat-message__text">${message.text}</p></div>`;
     chatMessages.appendChild(msgDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
