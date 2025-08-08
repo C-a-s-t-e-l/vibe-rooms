@@ -1,561 +1,740 @@
-
-
 document.addEventListener("DOMContentLoaded", () => {
   const BACKEND_URL = "https://vibes-fqic.onrender.com";
-  // const BACKEND_URL = "http://localhost:3000";
+  const userToken = localStorage.getItem("vibe_token");
+  const volumeSlider = document.getElementById("volume-slider");
+  const savedVolume = localStorage.getItem("vibe_volume") || 80;
+  volumeSlider.value = savedVolume;
 
-  const albumArt = document.getElementById("album-art");
-  const trackTitle = document.getElementById("track-title");
-  const trackArtist = document.getElementById("track-artist");
-  const elapsedTime = document.getElementById("elapsed-time");
-  const remainingTime = document.getElementById("remaining-time");
-  const progressFill = document.getElementById("progress-fill");
-  const playPauseBtn = document.getElementById("play-pause-btn");
-  const prevBtn = document.getElementById("prev-btn");
-  const nextBtn = document.getElementById("next-btn");
-  const reactions = document.querySelectorAll(".reaction-btn");
+  const googleAuthUrl = `${BACKEND_URL}/auth/google?redirect=${encodeURIComponent(
+    window.location.pathname
+  )}`;
 
-  const playlistEl = document.getElementById("playlist");
-  const playlistSearch = document.getElementById("playlist-search");
-  const addTrackUrl = document.getElementById("add-track-url");
-  const addTrackBtn = document.getElementById("add-track-btn");
+  const socket = io(BACKEND_URL, { auth: { token: userToken } });
 
-  const chatMessages = document.getElementById("chat-messages");
-  const chatText = document.getElementById("chat-text");
-  const chatSend = document.getElementById("chat-send");
-  const autoscrollToggle = document.getElementById("autoscroll-toggle");
+  let player;
+  let initialNowPlayingData = null;
+  let lastSeekTimestamp = 0;
 
-  const toastsRoot = document.getElementById("toasts");
-  const leaveRoomBtn = document.getElementById("leave-room-btn");
+  const loopBtn = document.getElementById("loop-btn");
+  let currentLoopMode = "none";
 
-  let socket = null;
-  let roomSlug = null;
-  let roomId = null;
-  let currentUser = null;
-  let isHost = false;
-  let playlist = []; 
-  let nowPlaying = null; 
-  let autoScroll =
-    (localStorage.getItem("vibes_autoscroll") || "true") === "true";
-  autoscrollToggle.checked = autoScroll;
+  const loopIconNone = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>`;
+  const loopIconPlaylist = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>`;
+  const loopIconSong = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V2L8 6l4 4V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8zm-1 5v5h2V7h-4v3h2z"/></svg>`;
 
-  function toast(message, { type = "success", timeout = 3500 } = {}) {
-    const el = document.createElement("div");
-    el.className = `toast ${type === "error" ? "error" : "success"}`;
-    el.textContent = message;
-    toastsRoot.appendChild(el);
-    setTimeout(() => {
-      el.style.opacity = "0";
-      setTimeout(() => el.remove(), 250);
-    }, timeout);
-  }
+  window.onYouTubeIframeAPIReady = function () {
+    player = new YT.Player("youtube-player", {
+      height: "0",
+      width: "0",
+      playerVars: { playsinline: 1, controls: 0, disablekb: 1 },
+      events: {
+        onReady: onPlayerReady,
+        onStateChange: onPlayerStateChange,
+      },
+    });
+  };
 
-  function esc(s) {
-    return String(s || "").replace(
-      /[&<>"']/g,
-      (m) =>
-        ({
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&#39;",
-        }[m])
-    );
-  }
-
-  (function getSlugFromPath() {
-    const m = window.location.pathname.match(/\/room\/(.+)$/);
-    if (m) roomSlug = m[1];
-  })();
-
- 
-  function connectSocket() {
-    const token = localStorage.getItem("vibe_token");
-    if (!roomSlug) {
-      console.error("No room slug found in URL.");
-      return;
+  function onPlayerReady(event) {
+    player.setVolume(volumeSlider.value);
+    if (!isHost) {
+      socket.emit("requestPerfectSync", { roomId: currentRoomId });
     }
+    if (initialNowPlayingData) {
+      syncPlayerState(initialNowPlayingData);
+      initialNowPlayingData = null;
+    }
+  }
 
-    socket = io(BACKEND_URL, { auth: { token } });
+  function onPlayerStateChange(event) {
+    if (event.data === YT.PlayerState.ENDED && isHost) {
+      socket.emit("skipTrack", { roomId: currentRoomId });
+    }
+  }
+
+  const formatTime = (ms) => {
+    if (!ms || isNaN(ms)) return "0:00";
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+  };
+
+  const currentRoomSlug = window.location.pathname.split("/").pop();
+  let currentRoomId = null;
+  let nowPlayingInterval;
+  let isHost = false,
+    isGuest = true,
+    audioContextUnlocked = false,
+    currentSongDuration = 0;
+  let currentSuggestions = [];
+  let currentPlaylistState = { playlist: [], nowPlayingIndex: -1 };
+
+  const audioUnlockOverlay = document.getElementById("audio-unlock-overlay");
+  const playPauseBtn = document.getElementById("play-pause-btn");
+  const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7Z"/></svg>`;
+  const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 19h4V5h-4v14M6 19h4V5H6v14Z"/></svg>`;
+
+  function unlockAudio() {
+    if (audioContextUnlocked) return;
+    audioContextUnlocked = true;
+    audioUnlockOverlay.style.display = "none";
+
+    if (player && typeof player.playVideo === "function") {
+      const currentVolume = player.getVolume();
+      player.mute();
+      player.playVideo();
+
+      setTimeout(() => {
+        player.pauseVideo();
+        player.setVolume(currentVolume);
+        player.unMute();
+
+        const shouldBePlaying =
+          (currentPlaylistState && currentPlaylistState.isPlaying) ||
+          (initialNowPlayingData && initialNowPlayingData.isPlaying);
+
+        if (shouldBePlaying) {
+          player.playVideo();
+        }
+      }, 150);
+    }
+  }
+
+  audioUnlockOverlay.addEventListener("click", unlockAudio);
+  setupSocketListeners();
+  setupUIEventListeners();
+  socket.emit("joinRoom", currentRoomSlug);
+
+  function setupSocketListeners() {
+    socket.on("toast", ({ type, message }) => showToast(message, type));
+
+    socket.on("disconnect", (reason) => {
+      showToast("Connection lost, reconnecting...", "error");
+    });
 
     socket.on("connect", () => {
-      console.log("socket connected");
-      socket.emit("joinRoom", roomSlug);
-    });
-
-    socket.on("roomNotFound", () => {
-      toast("Room not found.", { type: "error" });
-      setTimeout(() => (window.location.href = "/"), 1200);
-    });
-
-    socket.on("roomState", (state) => {
-      if (!state) return;
-      roomId = state.id || state.id?.toString?.() || roomId;
-      currentUser = state.currentUser;
-      isHost = state.isHost;
-      playlist =
-        (state.playlistState && state.playlistState.playlist) ||
-        state.playlist ||
-        [];
-      nowPlaying = state.nowPlaying;
-      renderPlaylist();
-      renderNowPlaying(nowPlaying);
-      renderChatHistory(state.chatHistory || []);
-      renderUserList(state.userList || []);
-      toast(`Joined ${state.name || "the room"}`, { timeout: 1800 });
-    });
-
-    socket.on("newChatMessage", (msg) => {
-      appendChatMessage(msg);
-      if (autoScroll) scrollChatToBottom();
-    });
-
-    socket.on("updateUserList", (userList) => {
-      renderUserList(userList);
-    });
-
-    socket.on("playlistUpdated", (plState) => {
-      playlist = (plState && plState.playlist) || playlist;
-      renderPlaylist();
-    });
-
-    socket.on("newSongPlaying", (np) => {
-      nowPlaying = np;
-      renderNowPlaying(np);
-      toast(np ? `Now playing: ${np.track.name}` : "Playback stopped");
-    });
-
-    socket.on("suggestionsUpdated", (sugs) => {
-     
-      if (sugs && sugs.length)
-        toast(`New suggestion(s) received`, { timeout: 1200 });
-    });
-
-    socket.on("updateListenerCount", (count) => {
-    
-    });
-
-    socket.on("toast", (data) => {
-      if (!data) return;
-      toast(data.message || "Notice", {
-        type: data.type === "error" ? "error" : "success",
-      });
+      showToast("Reconnected!", "success");
+      if (currentRoomSlug) {
+        socket.emit("joinRoom", currentRoomSlug);
+      }
     });
 
     socket.on("connect_error", (err) => {
-      console.warn("Socket error", err);
-      toast("Connection error — some features may not work.", {
-        type: "error",
-        timeout: 3000,
-      });
+      console.error("Connection Error:", err.message);
     });
 
-    socket.on("disconnect", () => {
-      toast("Disconnected from server", { type: "error", timeout: 1800 });
-    });
-
-    socket.on("getHostTimestamp", (data) => {
-  
-      if (!isHost) return;
-     
-      const hostPlayerTime = nowPlaying ? Date.now() - nowPlaying.startTime : 0;
-      socket.emit("sendHostTimestamp", {
-        requesterId: data.requesterId,
-        hostPlayerTime,
-      });
-    });
-  }
-
-  function renderNowPlaying(np) {
-    if (!np || !np.track) {
-      trackTitle.textContent = "No track playing";
-      trackArtist.textContent = "";
-      progressFill.style.width = "0%";
-      elapsedTime.textContent = "0:00";
-      remainingTime.textContent = "0:00";
-      albumArt.style.background = "linear-gradient(135deg,#334155,#0f1724)";
-      return;
-    }
-    const t = np.track;
-    trackTitle.textContent = t.name;
-    trackArtist.textContent = t.artist || t.channelTitle || "";
-
-    if (t.albumArt)
-      albumArt.style.background = `url('${t.albumArt}') center/cover no-repeat`;
-    else
-      albumArt.style.background =
-        "linear-gradient(135deg,var(--accent), #34d399)";
-
-    function updateProgress() {
-      if (!np || !np.track) return;
-      const total = np.track.duration_ms || 0;
-     
-      const position = np.isPlaying
-        ? Date.now() - np.startTime
-        : np.position || 0;
-      const pct = total
-        ? Math.min(100, Math.max(0, (position / total) * 100))
-        : 0;
-      progressFill.style.width = pct + "%";
-      elapsedTime.textContent = formatMs(position);
-      remainingTime.textContent = formatMs(Math.max(0, total - position));
-    }
-  
-    updateProgress();
-    if (renderNowPlaying._interval) clearInterval(renderNowPlaying._interval);
-    renderNowPlaying._interval = setInterval(updateProgress, 800);
-  }
-
-  function renderPlaylist(filterText = "") {
-    playlistEl.innerHTML = "";
-    const list =
-      (filterText
-        ? playlist.filter(
-            (t) =>
-              (t.name || "").toLowerCase().includes(filterText) ||
-              (t.artist || "").toLowerCase().includes(filterText)
-          )
-        : playlist) || [];
-    list.forEach((track, idx) => {
-      const li = document.createElement("li");
-      li.className = "playlist-item";
-      li.draggable = true;
-      li.dataset.index = idx;
-      li.innerHTML = `
-        <div class="playlist-thumb" style="background-image: url('${
-          track.albumArt || "/placeholder.svg"
-        }'); background-size:cover; background-position:center"></div>
-        <div class="playlist-meta">
-          <div class="track-name">${esc(track.name)}</div>
-          <div class="track-sub">${esc(
-            track.artist || track.source || ""
-          )}</div>
-        </div>
-        <div class="playlist-actions">
-          ${
-            nowPlaying &&
-            nowPlaying.track &&
-            nowPlaying.track.videoId === track.videoId
-              ? `<span class="now-playing-badge">NOW</span>`
-              : ""
-          }
-          <button class="btn small play-btn" title="Play">▶</button>
-          ${
-            isHost
-              ? `<button class="btn small delete-btn" title="Delete">🗑</button>`
-              : ""
-          }
-        </div>
-      `;
-
-      li.querySelector(".play-btn").addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (!socket) return;
-    
-        const originalIndex = playlist.findIndex(
-          (p) => p.videoId === track.videoId
-        );
-        if (originalIndex !== -1)
-          socket.emit("playTrackAtIndex", {
-            roomId: roomId,
-            index: originalIndex,
-          });
-      });
- 
-      li.addEventListener("dblclick", () => {
-        const originalIndex = playlist.findIndex(
-          (p) => p.videoId === track.videoId
-        );
-        if (originalIndex !== -1 && socket)
-          socket.emit("playTrackAtIndex", {
-            roomId: roomId,
-            index: originalIndex,
-          });
-      });
-
-
-      if (isHost) {
-        const delBtn = li.querySelector(".delete-btn");
-        delBtn &&
-          delBtn.addEventListener("click", (ev) => {
-            ev.stopPropagation();
-            const originalIndex = playlist.findIndex(
-              (p) => p.videoId === track.videoId
-            );
-            if (originalIndex !== -1 && socket) {
-              if (!confirm("Delete this track from playlist?")) return;
-              socket.emit("deleteTrack", {
-                roomId: roomId,
-                indexToDelete: originalIndex,
-              });
-            }
-          });
+    socket.on("roomState", (data) => {
+      if (!data) {
+        showToast("Room not found or has been deleted.", "error");
+        return (window.location.href = "/");
       }
 
- 
-      li.addEventListener("dragstart", (ev) => {
-        li.classList.add("dragging");
-        ev.dataTransfer.setData("text/plain", track.videoId);
-        ev.dataTransfer.effectAllowed = "move";
-      });
-      li.addEventListener("dragend", () => {
-        li.classList.remove("dragging");
-      });
+      currentRoomId = data.id;
+      document.title = data.name;
+      isHost = data.isHost;
+      isGuest = !data.currentUser;
 
-    
-      playlistEl.appendChild(li);
-    });
-  }
+      document.getElementById("room-name-display").textContent = data.name;
 
-  playlistEl.addEventListener("dragover", (ev) => {
-    ev.preventDefault();
-    const afterEl = getDragAfterElement(playlistEl, ev.clientY);
-    const dragging = document.querySelector(".playlist-item.dragging");
-    if (!dragging) return;
-    if (!afterEl) playlistEl.appendChild(dragging);
-    else playlistEl.insertBefore(dragging, afterEl);
-  });
+      window.va && window.va("event", "Join Room", { roomName: data.name });
 
-  playlistEl.addEventListener("drop", (ev) => {
-    ev.preventDefault();
-    const dragging = document.querySelector(".playlist-item.dragging");
-    if (!dragging) return;
-    dragging.classList.remove("dragging");
-  
-    const newOrderVideoIds = Array.from(playlistEl.children)
-      .map((li) => {
-        const idx = li.dataset.index;
-      
-        const name = li.querySelector(".track-name").textContent;
-        return playlist.find((p) => p.name === name || p.videoId === p.videoId)
-          ?.videoId;
-      })
-      .filter(Boolean);
+      updateInteractiveForms();
 
-
-    const newPlaylist = [];
-    newOrderVideoIds.forEach((vid) => {
-      const t = playlist.find((p) => p.videoId === vid);
-      if (t) newPlaylist.push(t);
-    });
-    // if lengths mismatch (e.g., filtered view), fall back to DOM order + remaining
-    if (newPlaylist.length !== playlist.length) {
-      // create mapping by name fallback (best-effort)
-      const domNames = Array.from(playlistEl.children).map(
-        (li) => li.querySelector(".track-name").textContent
+      const hostControlsWrapper = document.getElementById(
+        "host-controls-wrapper"
       );
-      const byName = domNames
-        .map((n) => playlist.find((p) => p.name === n) || null)
-        .filter(Boolean);
-      if (byName.length === playlist.length) {
-        playlist = byName;
-      } else {
-        // as last resort, keep existing order
-        // (do not overwrite)
+      hostControlsWrapper.classList.toggle("is-guest", !isHost);
+
+      currentPlaylistState = data.playlistState || {
+        playlist: [],
+        nowPlayingIndex: -1,
+      };
+      updatePlaylistUI(currentPlaylistState);
+      updateLoopButtonUI(data.loopMode || "none");
+
+      currentSuggestions = data.suggestions || [];
+      updateSuggestionsUI(currentSuggestions);
+
+      updateUserListUI(data.userList || []);
+      updateGuestListUI(data.guestList || [], socket.id);
+
+      document.getElementById("listener-count-display").textContent =
+        data.listenerCount;
+
+      const chatMessages = document.getElementById("chat-messages");
+      chatMessages.innerHTML = "";
+      if (data.chatHistory) {
+        data.chatHistory.forEach(
+          (message) => !message.system && renderChatMessage(message)
+        );
       }
-    } else {
-      playlist = newPlaylist;
-    }
 
-    renderPlaylist(playlistSearch.value.trim().toLowerCase());
+      syncPlayerState(data.nowPlaying);
+    });
 
-    // emit reorder — custom event; server must implement to persist this change across clients
-    if (socket) {
-      const reorderPayload = playlist.map((t) => t.videoId);
-      socket.emit("reorderPlaylist", { roomId: roomId, order: reorderPayload });
-      toast("Playlist reordered", { timeout: 1200 });
-    }
-  });
+    socket.on("rosterUpdated", ({ userList, guestList }) => {
+      updateUserListUI(userList);
+      updateGuestListUI(guestList, socket.id);
+    });
 
-  function getDragAfterElement(container, y) {
-    const draggableEls = [
-      ...container.querySelectorAll(".playlist-item:not(.dragging)"),
-    ];
-    return draggableEls.reduce(
-      (closest, child) => {
-        const box = child.getBoundingClientRect();
-        const offset = y - box.top - box.height / 2;
-        if (offset < 0 && offset > closest.offset) {
-          return { offset: offset, element: child };
+    socket.on("newSongPlaying", (nowPlayingData) => {
+      if (nowPlayingData) {
+        currentPlaylistState.nowPlayingIndex = nowPlayingData.nowPlayingIndex;
+        currentPlaylistState.isPlaying = nowPlayingData.isPlaying;
+        updatePlaylistUI(currentPlaylistState);
+      }
+      syncPlayerState(nowPlayingData);
+    });
+
+    socket.on("getHostTimestamp", ({ requesterId }) => {
+      if (isHost && player && typeof player.getCurrentTime === "function") {
+        socket.emit("sendHostTimestamp", {
+          requesterId,
+          hostPlayerTime: player.getCurrentTime(),
+        });
+      }
+    });
+
+    socket.on("receivePerfectSync", ({ hostPlayerTime }) => {
+      if (!isHost && player && typeof player.seekTo === "function") {
+        player.seekTo(hostPlayerTime, true);
+        if (currentPlaylistState && currentPlaylistState.isPlaying) {
+          player.playVideo();
         } else {
-          return closest;
+          player.pauseVideo();
         }
-      },
-      { offset: Number.NEGATIVE_INFINITY }
-    ).element;
+      }
+    });
+
+    socket.on("syncPulse", (data) => {
+      if (isHost || isGuest) {
+        return;
+      }
+
+      if (
+        !data ||
+        !data.track ||
+        !player ||
+        typeof player.getPlayerState !== "function"
+      ) {
+        return;
+      }
+
+      const playerState = player.getPlayerState();
+      if (data.isPlaying && playerState !== YT.PlayerState.PLAYING) {
+        player.playVideo();
+      } else if (!data.isPlaying && playerState === YT.PlayerState.PLAYING) {
+        player.pauseVideo();
+      }
+
+      if (data.isPlaying) {
+        const latency = Date.now() - data.serverTimestamp;
+        const authoritativePosition = data.position + latency;
+        const clientPosition = player.getCurrentTime() * 1000;
+        const drift = authoritativePosition - clientPosition;
+        const now = Date.now();
+
+        if (Math.abs(drift) > 500 && now - lastSeekTimestamp > 2000) {
+          player.seekTo(authoritativePosition / 1000, true);
+          lastSeekTimestamp = now;
+        }
+      }
+    });
+
+    socket.on("hostAssigned", () => {
+      isHost = true;
+      isGuest = false;
+      document
+        .getElementById("host-controls-wrapper")
+        .classList.remove("is-guest");
+      updateInteractiveForms();
+      updatePlaylistUI(currentPlaylistState);
+      updateSuggestionsUI(currentSuggestions);
+    });
+
+    socket.on("playlistUpdated", (playlistState) => {
+      currentPlaylistState = playlistState;
+      updatePlaylistUI(playlistState);
+    });
+
+    socket.on("suggestionsUpdated", (suggestions) => {
+      currentSuggestions = suggestions;
+      updateSuggestionsUI(suggestions);
+    });
+
+    socket.on("loopModeUpdated", ({ loopMode }) =>
+      updateLoopButtonUI(loopMode)
+    );
+    socket.on("newChatMessage", (message) =>
+      message.system
+        ? renderSystemMessage(message.text)
+        : renderChatMessage(message)
+    );
+    socket.on(
+      "updateListenerCount",
+      (count) =>
+        (document.getElementById("listener-count-display").textContent = count)
+    );
   }
 
-  // playlist search
-  playlistSearch &&
-    playlistSearch.addEventListener("input", (e) => {
-      const q = e.target.value.trim().toLowerCase();
-      renderPlaylist(q);
+  function updateInteractiveForms() {
+    const addVibeWrapper = document.getElementById("add-vibe-wrapper");
+    const chatFormWrapper = document.getElementById("chat-form-wrapper");
+
+    const loginPromptHTML = (action) => `
+        <div class="login-prompt">
+            <a href="${googleAuthUrl}" class="btn-leave">Log in to ${action}</a>
+        </div>
+    `;
+
+    const chatFormHTML = `
+        <form id="chat-form" class="chat-form">
+            <input type="text" id="chat-input" placeholder="Say something..." autocomplete="off" required />
+            <button type="submit" id="send-btn">Send</button>
+        </form>
+    `;
+    const addVibeFormHTML = (isHost) => {
+      const title = isHost ? "Add by Link" : "Suggest by Link";
+      const placeholder = isHost
+        ? "Paste YouTube link to add..."
+        : "Paste YouTube link to suggest...";
+      const btnText = isHost ? "Add" : "Suggest";
+      return `
+            <h4 class="section-title">${title}</h4>
+            <form id="link-form" class="link-form">
+                <input type="text" id="link-input" class="link-input-field" placeholder="${placeholder}" autocomplete="off" />
+                <button type="submit" class="form-action-btn">${btnText}</button>
+            </form>
+        `;
+    };
+
+    if (isGuest) {
+      addVibeWrapper.innerHTML = loginPromptHTML("add songs");
+      chatFormWrapper.innerHTML = loginPromptHTML("chat");
+    } else {
+      addVibeWrapper.innerHTML = addVibeFormHTML(isHost);
+      chatFormWrapper.innerHTML = chatFormHTML;
+
+      document.getElementById("chat-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const text = document.getElementById("chat-input").value.trim();
+        if (text) {
+          socket.emit("sendMessage", { roomId: currentRoomId, text });
+          document.getElementById("chat-input").value = "";
+        }
+      });
+
+      document.getElementById("link-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const inputEl = document.getElementById("link-input");
+        const url = inputEl.value.trim();
+        if (url) {
+          socket.emit("addYouTubeTrack", { roomId: currentRoomId, url: url });
+          inputEl.value = "";
+          showToast(isHost ? "Adding to playlist..." : "Suggestion sent!");
+        }
+      });
+    }
+  }
+
+  function setupUIEventListeners() {
+    playPauseBtn.addEventListener("click", () => {
+      if (!isHost || !player) return;
+      socket.emit("hostPlaybackChange", {
+        roomId: currentRoomId,
+        isPlaying: !currentPlaylistState.isPlaying,
+      });
     });
 
-  // add track
-  addTrackBtn &&
-    addTrackBtn.addEventListener("click", () => {
-      const url = (addTrackUrl.value || "").trim();
-      if (!url)
-        return toast("Paste a YouTube video or playlist URL", {
-          type: "error",
+    document.getElementById("next-btn").addEventListener("click", () => {
+      if (isHost) socket.emit("skipTrack", { roomId: currentRoomId });
+    });
+    document.getElementById("prev-btn").addEventListener("click", () => {
+      if (isHost) socket.emit("playPrevTrack", { roomId: currentRoomId });
+    });
+
+    loopBtn.addEventListener("click", () => {
+      if (isHost) {
+        socket.emit("toggleLoopMode", { roomId: currentRoomId });
+      }
+    });
+
+    volumeSlider.addEventListener("input", (e) => {
+      if (player && player.setVolume) player.setVolume(e.target.value);
+      localStorage.setItem("vibe_volume", e.target.value);
+    });
+
+    document
+      .getElementById("progress-bar-container")
+      .addEventListener("click", (e) => {
+        if (!isHost || !currentSongDuration) return;
+        const bar = document.getElementById("progress-bar-container");
+        const seekRatio = e.offsetX / bar.clientWidth;
+        socket.emit("hostPlaybackChange", {
+          roomId: currentRoomId,
+          position: currentSongDuration * seekRatio,
+          isPlaying: true,
         });
-      if (!socket) return toast("Not connected", { type: "error" });
-      socket.emit("addYouTubeTrack", { roomId: roomId, url });
-      addTrackUrl.value = "";
-      toast("Adding track...", { timeout: 1500 });
-    });
+      });
 
-  // allow paste detection
-  addTrackUrl &&
-    addTrackUrl.addEventListener("paste", (e) => {
-      setTimeout(() => {
-        const v = addTrackUrl.value.trim();
-        if (v) addTrackBtn.click();
-      }, 40);
+    const tabButtons = document.querySelectorAll(".tab-btn");
+    const tabContents = document.querySelectorAll(".tab-content");
+    tabButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const tab = button.dataset.tab;
+        tabButtons.forEach((btn) => btn.classList.remove("active"));
+        button.classList.add("active");
+        tabContents.forEach((content) =>
+          content.classList.toggle("active", content.id === `${tab}-content`)
+        );
+      });
     });
+  }
 
-  // playback controls (host-only)
-  playPauseBtn.addEventListener("click", () => {
-    if (!socket) return;
-    if (!isHost) {
-      toast("Only the host can control playback", { type: "error" });
+  function syncPlayerState(nowPlaying) {
+    clearInterval(nowPlayingInterval);
+
+    if (!nowPlaying || !nowPlaying.track) {
+      updateNowPlayingUI(null, false);
+      if (player && typeof player.stopVideo === "function") player.stopVideo();
       return;
     }
-    // toggle: emit hostPlaybackChange
-    const currentlyPlaying = nowPlaying;
-    if (!currentlyPlaying) return;
-    const willPlay = !currentlyPlaying.isPlaying;
-    const position = currentlyPlaying.position || 0;
-    socket.emit("hostPlaybackChange", {
-      roomId: roomId,
-      isPlaying: willPlay,
-      position,
-    });
-  });
 
-  prevBtn.addEventListener("click", () => {
-    if (!socket) return;
-    if (!isHost)
-      return toast("Only the host can control playback", { type: "error" });
-    socket.emit("playPrevTrack", { roomId: roomId });
-  });
-  nextBtn.addEventListener("click", () => {
-    if (!socket) return;
-    if (!isHost)
-      return toast("Only the host can control playback", { type: "error" });
-    socket.emit("skipTrack", { roomId: roomId });
-  });
-
-  // reactions
-  reactions.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      if (!socket) return;
-      // send reaction as chat message (simple approach; server doesn't have reaction event)
-      const emoji = btn.textContent || "👍";
-      socket.emit("sendMessage", { roomId: roomId, text: emoji });
-    });
-  });
-
-  // chat send
-  chatSend.addEventListener("click", sendChat);
-  chatText.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") sendChat();
-  });
-
-  function sendChat() {
-    const text = (chatText.value || "").trim();
-    if (!text) return;
-    if (!socket) return toast("Not connected", { type: "error" });
-    socket.emit("sendMessage", { roomId: roomId, text });
-    chatText.value = "";
-  }
-
-  function appendChatMessage(msg) {
-    if (!msg) return;
-    const el = document.createElement("div");
-    if (msg.system) {
-      el.className = "chat-system";
-      el.textContent = msg.text;
-    } else {
-      el.className = "chat-msg";
-      const avatar = document.createElement("div");
-      avatar.className = "chat-avatar";
-      if (msg.avatar)
-        (avatar.style.backgroundImage = `url('${msg.avatar}')`),
-          (avatar.style.backgroundSize = "cover");
-      const body = document.createElement("div");
-      body.className = "chat-body";
-      const userEl = document.createElement("div");
-      userEl.className = "chat-user";
-      userEl.textContent = msg.user || msg.userId || "Anon";
-      userEl.addEventListener("click", () => {
-        // prefill @mention
-        chatText.value = `@${userEl.textContent} `;
-        chatText.focus();
-      });
-      const textEl = document.createElement("div");
-      textEl.className = "chat-text";
-      textEl.innerHTML = esc(msg.text);
-      const ts = document.createElement("div");
-      ts.className = "chat-ts";
-      ts.textContent = msg.timestamp || "";
-      body.appendChild(userEl);
-      body.appendChild(textEl);
-      body.appendChild(ts);
-      el.appendChild(avatar);
-      el.appendChild(body);
+    if (!player || typeof player.loadVideoById !== "function") {
+      initialNowPlayingData = nowPlaying;
+      updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
+      return;
     }
-    chatMessages.appendChild(el);
-  }
 
-  function renderChatHistory(history = []) {
-    chatMessages.innerHTML = "";
-    (history || []).forEach((m) => appendChatMessage(m));
-    if (autoScroll) scrollChatToBottom();
-  }
+    updateNowPlayingUI(nowPlaying, nowPlaying.isPlaying);
 
-  function scrollChatToBottom() {
-    chatMessages.scrollTop = chatMessages.scrollHeight + 200;
-  }
+    const { track, isPlaying, position, serverTimestamp, startTime } =
+      nowPlaying;
 
-  function renderUserList(users) {
-    // optional: you could show small presence list; we'll toast join/leave messages
-    // detect join/leave by comparing to previous list (not implemented here)
-  }
+    const latency = Date.now() - serverTimestamp;
+    const correctedPositionInSeconds = (position + latency) / 1000;
 
-  // utility: format ms to m:ss
-  function formatMs(ms) {
-    if (!ms || isNaN(ms)) return "0:00";
-    ms = Math.max(0, Math.floor(ms));
-    const s = Math.floor(ms / 1000);
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${m}:${sec.toString().padStart(2, "0")}`;
-  }
+    const currentVideoUrl = player.getVideoUrl();
+    const currentPlayerVideoId = currentVideoUrl
+      ? (currentVideoUrl.match(/v=([^&]+)/) || [])[1]
+      : null;
 
-  // autoscroll toggle persistence
-  autoscrollToggle.addEventListener("change", (e) => {
-    autoScroll = !!e.target.checked;
-    localStorage.setItem("vibes_autoscroll", autoScroll ? "true" : "false");
-  });
+    const isNewVideo = currentPlayerVideoId !== track.videoId;
 
-  // leave room
-  leaveRoomBtn &&
-    leaveRoomBtn.addEventListener("click", () => {
-      if (confirm("Leave this room?")) {
-        // inform server (processUserLeave is handled on disconnect)
-        if (socket) socket.disconnect();
-        window.location.href = "/";
+    if (isNewVideo) {
+      player.loadVideoById({
+        videoId: track.videoId,
+        startSeconds: correctedPositionInSeconds,
+      });
+    } else {
+      const clientTime = player.getCurrentTime();
+      if (Math.abs(clientTime - correctedPositionInSeconds) > 1.5) {
+        player.seekTo(correctedPositionInSeconds, true);
       }
+    }
+
+    if (isPlaying) {
+      startProgressTimer(startTime, track.duration_ms);
+      if (!isNewVideo) {
+        if (audioContextUnlocked) {
+          player.playVideo();
+        } else {
+          audioUnlockOverlay.style.display = "grid";
+        }
+      }
+    } else {
+      const progressPercent = (position / track.duration_ms) * 100;
+      document.getElementById(
+        "progress-bar"
+      ).style.width = `${progressPercent}%`;
+      document.getElementById("current-time").textContent =
+        formatTime(position);
+      player.pauseVideo();
+    }
+  }
+
+  function startProgressTimer(startTime, duration_ms) {
+    clearInterval(nowPlayingInterval);
+    const update = () => {
+      const elapsedTime = Date.now() - startTime;
+      if (elapsedTime >= duration_ms) {
+        clearInterval(nowPlayingInterval);
+        document.getElementById("progress-bar").style.width = "100%";
+        document.getElementById("current-time").textContent =
+          formatTime(duration_ms);
+        return;
+      }
+      document.getElementById("progress-bar").style.width = `${
+        (elapsedTime / duration_ms) * 100
+      }%`;
+      document.getElementById("current-time").textContent =
+        formatTime(elapsedTime);
+    };
+    nowPlayingInterval = setInterval(update, 500);
+    update();
+  }
+
+  function updateNowPlayingUI(nowPlaying, isPlaying) {
+    updatePlayPauseIcon(isPlaying);
+    const artEl = document.getElementById("now-playing-art");
+    const nameEl = document.getElementById("now-playing-name");
+    const artistEl = document.getElementById("now-playing-artist");
+    const bgEl = document.getElementById("room-background");
+    const totalTimeEl = document.getElementById("total-time");
+    if (!nowPlaying || !nowPlaying.track) {
+      artEl.src = "/placeholder.svg";
+      nameEl.textContent = "Nothing Playing";
+      artistEl.textContent = "Add a song to start the vibe";
+      bgEl.style.backgroundImage = "none";
+      document.getElementById("progress-bar").style.width = "0%";
+      document.getElementById("current-time").textContent = "0:00";
+      totalTimeEl.textContent = "0:00";
+      currentSongDuration = 0;
+      return;
+    }
+    const { track } = nowPlaying;
+    currentSongDuration = track.duration_ms;
+    artEl.src = track.albumArt || "/placeholder.svg";
+    nameEl.textContent = track.name;
+    artistEl.textContent = track.artist;
+    bgEl.style.backgroundImage = `url('${track.albumArt}')`;
+    totalTimeEl.textContent = formatTime(track.duration_ms);
+  }
+
+  function updatePlayPauseIcon(isPlaying) {
+    playPauseBtn.innerHTML = isPlaying ? pauseIcon : playIcon;
+    const nowPlayingCard = document.getElementById("now-playing-container");
+    if (nowPlayingCard) {
+      nowPlayingCard.classList.toggle("is-playing", isPlaying);
+    }
+  }
+
+  function updateLoopButtonUI(mode) {
+    currentLoopMode = mode;
+    loopBtn.classList.remove("active");
+
+    switch (mode) {
+      case "playlist":
+        loopBtn.innerHTML = loopIconPlaylist;
+        loopBtn.classList.add("active");
+        loopBtn.title = "Loop Playlist";
+        break;
+      case "song":
+        loopBtn.innerHTML = loopIconSong;
+        loopBtn.classList.add("active");
+        loopBtn.title = "Loop Song";
+        break;
+      default:
+        loopBtn.innerHTML = loopIconNone;
+        loopBtn.title = "Looping Off";
+        break;
+    }
+  }
+
+  function showToast(message, type = "success") {
+    const container = document.getElementById("toast-container");
+    const toast = document.createElement("div");
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 4000);
+  }
+
+  function renderChatMessage(message) {
+    const chatMessages = document.getElementById("chat-messages");
+    const msgDiv = document.createElement("div");
+    msgDiv.className = "chat-message";
+
+    const messageTimestamp = new Date(message.timestamp).toLocaleTimeString(
+      [],
+      {
+        hour: "2-digit",
+        minute: "2-digit",
+      }
+    );
+
+    msgDiv.innerHTML = `<img src="${message.avatar}" alt="${message.user}" class="chat-message__avatar"><div class="chat-message__content"><div class="chat-message__header"><span class="chat-message__username">${message.user}</span><span class="chat-message__timestamp">${messageTimestamp}</span></div><p class="chat-message__text">${message.text}</p></div>`;
+    chatMessages.appendChild(msgDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  function renderSystemMessage(text) {
+    const chatMessages = document.getElementById("chat-messages");
+    const p = document.createElement("p");
+    p.className = "system-message";
+    p.textContent = text;
+    chatMessages.appendChild(p);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  function updateUserListUI(users) {
+    const userList = document.getElementById("user-list");
+    const userCountDisplay = document.getElementById("user-count-display");
+    userList.innerHTML = "";
+    userCountDisplay.textContent = `(${users.length})`;
+    users.sort((a, b) => b.isHost - a.isHost);
+    users.forEach((user) => {
+      const userItem = document.createElement("div");
+      userItem.className = "user-list-item";
+      const hostIcon = user.isHost ? '<span class="host-icon">👑</span>' : "";
+      userItem.innerHTML = `<img src="${user.avatar}" alt="${user.displayName}"><span>${user.displayName}</span>${hostIcon}`;
+      userList.appendChild(userItem);
     });
+  }
 
-  // initial connect
-  connectSocket();
+  function updateGuestListUI(guests, ownSocketId) {
+    const guestList = document.getElementById("guest-list");
+    const guestCountDisplay = document.getElementById("guest-count-display");
+    const guestsTabBtn = document.getElementById("guests-tab-btn");
+    guestList.innerHTML = "";
+    guestCountDisplay.textContent = `(${guests.length})`;
 
-  // clean up when leaving page
-  window.addEventListener("beforeunload", () => {
-    if (socket) socket.disconnect();
-  });
+    if (guests.length > 0) {
+      guestsTabBtn.style.display = "inline-flex";
+    } else {
+      guestsTabBtn.style.display = "none";
+    }
+
+    guests.forEach((guest) => {
+      const guestItem = document.createElement("div");
+      guestItem.className = "guest-list-item";
+      const selfIndicator = isGuest && guest.id === ownSocketId ? " (you)" : "";
+      guestItem.innerHTML = `
+            <div class="guest-avatar">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                </svg>
+            </div>
+            <span>${guest.displayName}${selfIndicator}</span>
+        `;
+      guestList.appendChild(guestItem);
+    });
+  }
+
+  function updatePlaylistUI({ playlist, nowPlayingIndex }) {
+    const queueList = document.getElementById("queue-list");
+    queueList.innerHTML = "";
+    if (!playlist || playlist.length === 0) {
+      queueList.innerHTML = '<p class="system-message">Playlist is empty</p>';
+      return;
+    }
+    playlist.forEach((item, index) => {
+      const queueItemDiv = document.createElement("div");
+      queueItemDiv.className = "queue-item";
+      queueItemDiv.dataset.index = index;
+      if (index === nowPlayingIndex) queueItemDiv.classList.add("is-playing");
+      if (index < nowPlayingIndex) queueItemDiv.classList.add("is-played");
+      if (isHost) queueItemDiv.classList.add("is-host-clickable");
+      const playIndicator =
+        index === nowPlayingIndex
+          ? "▶"
+          : index < nowPlayingIndex
+          ? "✓"
+          : index + 1;
+      queueItemDiv.innerHTML = `
+        <span class="queue-item__number">${playIndicator}</span>
+        <img src="${item.albumArt || "/placeholder.svg"}" alt="${
+        item.name
+      }" class="queue-item__art">
+        <div class="track-info"><p>${item.name}</p><p>${
+        item.artist || ""
+      }</p></div>
+        <span class="queue-item__duration">${formatTime(
+          item.duration_ms
+        )}</span>
+        <div class="playlist-item-controls"></div>`;
+      if (isHost) {
+        const controlsContainer = queueItemDiv.querySelector(
+          ".playlist-item-controls"
+        );
+        controlsContainer.innerHTML = `<button class="delete-track-btn" title="Remove from playlist"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg></button>`;
+      }
+      queueList.appendChild(queueItemDiv);
+    });
+    if (isHost) {
+      queueList.querySelectorAll(".is-host-clickable").forEach((item) => {
+        item.addEventListener("click", (e) => {
+          if (e.target.closest(".delete-track-btn")) return;
+          const clickedIndex = parseInt(e.currentTarget.dataset.index, 10);
+          if (clickedIndex !== nowPlayingIndex) {
+            socket.emit("playTrackAtIndex", {
+              roomId: currentRoomId,
+              index: clickedIndex,
+            });
+          }
+        });
+      });
+      queueList.querySelectorAll(".delete-track-btn").forEach((button) => {
+        button.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const indexToDelete = parseInt(
+            e.currentTarget.closest(".queue-item").dataset.index,
+            10
+          );
+          socket.emit("deleteTrack", { roomId: currentRoomId, indexToDelete });
+          showToast("Track removed from playlist.");
+        });
+      });
+    }
+  }
+
+  function updateSuggestionsUI(suggestions) {
+    const suggestionsList = document.getElementById("suggestions-list");
+    const suggestionsCountDisplay = document.getElementById(
+      "suggestions-count-display"
+    );
+    suggestionsList.innerHTML = "";
+    suggestionsCountDisplay.textContent = `(${suggestions.length})`;
+    if (!suggestions || suggestions.length === 0) {
+      suggestionsList.innerHTML =
+        '<p class="system-message">No suggestions yet</p>';
+      return;
+    }
+    suggestions.forEach((item) => {
+      const suggestionDiv = document.createElement("div");
+      suggestionDiv.className = "suggestion-item";
+      suggestionDiv.dataset.id = item.suggestionId;
+      const hostControls = isHost
+        ? `<div class="suggestion-controls"><button class="suggestion-approve" title="Approve"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg></button><button class="suggestion-reject" title="Reject"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg></button></div>`
+        : "";
+      suggestionDiv.innerHTML = `<img src="${
+        item.albumArt || "/placeholder.svg"
+      }" alt="${
+        item.name
+      }" class="queue-item__art"><div class="track-info"><p>${
+        item.name
+      }</p><p class="suggestion-item__suggester">by ${
+        item.artist
+      } - suggested by ${item.suggester.name}</p></div>${hostControls}`;
+      suggestionsList.appendChild(suggestionDiv);
+    });
+    if (isHost) {
+      suggestionsList
+        .querySelectorAll(".suggestion-approve")
+        .forEach((button) => {
+          button.addEventListener("click", (e) => {
+            const suggestionId =
+              e.currentTarget.closest(".suggestion-item").dataset.id;
+            socket.emit("approveSuggestion", {
+              roomId: currentRoomId,
+              suggestionId,
+            });
+            showToast("Suggestion approved!");
+          });
+        });
+      suggestionsList
+        .querySelectorAll(".suggestion-reject")
+        .forEach((button) => {
+          button.addEventListener("click", (e) => {
+            const suggestionId =
+              e.currentTarget.closest(".suggestion-item").dataset.id;
+            socket.emit("rejectSuggestion", {
+              roomId: currentRoomId,
+              suggestionId,
+            });
+            showToast("Suggestion rejected.");
+          });
+        });
+    }
+  }
 });
